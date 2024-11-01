@@ -1,24 +1,25 @@
-
 import time
 from datetime import datetime
 from logging import error
 
-from rtu.Eastron.EastronSDM120 import EastronSDM120
+from rtu.DeviceManager import DeviceManager
+import pandas as pd
 
 if __name__ == "__main__":
-    client1 = EastronSDM120(1, "COM1")
-    #client2 = EastronSDM120(2, "COM1")
+    device_manager = DeviceManager()
 
     while True:
         try:
-            print(client1.read_all_properties())
-            #print(client2.read_all_properties())
+            report_path = device_manager.get_device_by_custom_name("Test 2 Device").read_all_properties()
+            print(f"Report has been saved in: {report_path}")
+
+            df = pd.read_csv(report_path)
+            print(df)
             print("-----")
         except KeyboardInterrupt:
-            print("Program stopped...")
+            print("Program interrupted")
             break
         except Exception as e:
-            error(f"{datetime.now().strftime("%d/%m/%Y %H:%M:%S")} | {e}")
+            error(f"{datetime.now().strftime('%d/%m/%Y %H:%M:%S')} | {e}")
 
-        time.sleep(5)
-
+        time.sleep(60)

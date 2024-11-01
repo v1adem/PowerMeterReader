@@ -2,49 +2,49 @@
   "Voltage": {
     "register": 0,
     "type": "input",
-    "data_type": "float",
+    "format": "float",
     "units": "Volts"
   },
   "Current": {
     "register": 6,
     "type": "input",
-    "data_type": "float",
+    "format": "float",
     "units": "Amps"
   },
   "Active power": {
     "register": 12,
     "type": "input",
-    "data_type": "float",
+    "format": "float",
     "units": "Watts"
   },
   "Apparent power": {
     "register": 18,
     "type": "input",
-    "data_type": "float",
+    "format": "float",
     "units": "VA"
   },
   "Reactive power": {
     "register": 24,
     "type": "input",
-    "data_type": "float",
+    "format": "float",
     "units": "VAr"
   },
   "Frequency": {
     "register": 70,
     "type": "input",
-    "data_type": "float",
+    "format": "float",
     "units": "Hz"
   },
   "Import active energy": {
     "register": 72,
     "type": "input",
-    "data_type": "float",
+    "format": "float",
     "units": "kWh"
   },
   "Export active energy": {
     "register": 74,
     "type": "input",
-    "data_type": "float",
+    "format": "float",
     "units": "kWh"
   }
 }

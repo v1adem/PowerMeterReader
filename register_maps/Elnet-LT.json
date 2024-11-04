@@ -1,8 +1,0 @@
-{
-  "Voltage": {
-    "register": 0,
-    "type": "input",
-    "format": "float",
-    "units": "Volts"
-  }
-}

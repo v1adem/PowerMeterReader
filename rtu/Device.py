@@ -29,8 +29,4 @@ class Device(ABC):
             "device_address": self.device_address,
             "device_name": self.device_name,
             "port": self.port,
-            "baudrate": self.baudrate,
-            "bytesize": self.bytesize,
-            "parity": self.parity,
-            "stopbits": self.stopbits
         }

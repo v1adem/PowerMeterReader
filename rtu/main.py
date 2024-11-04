@@ -2,20 +2,22 @@ import time
 from datetime import datetime
 from logging import error
 
-from rtu.DeviceManager import DeviceManager
-import pandas as pd
+from DeviceManager import DeviceManager
+
 
 if __name__ == "__main__":
     device_manager = DeviceManager()
 
     while True:
         try:
-            report_path = device_manager.get_device_by_custom_name("Test 2 Device").read_all_properties()
-            print(f"Report has been saved in: {report_path}")
+            print(device_manager.fetch_devices())
 
-            df = pd.read_csv(report_path)
-            print(df)
-            print("-----")
+            #report_path = device_manager.get_device_by_custom_name("NEMO").read_all_properties()
+            #print(f"Report has been saved in: {report_path}")
+            #print(f"{datetime.now().strftime('%d/%m/%Y %H:%M:%S')} \n\n")
+            #df = pd.read_csv(report_path)
+            #print(df)
+            #print("\n-----\n")
         except KeyboardInterrupt:
             print("Program interrupted")
             break

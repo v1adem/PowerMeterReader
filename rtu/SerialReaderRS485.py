@@ -11,15 +11,39 @@ from pymodbus.payload import BinaryPayloadDecoder
 
 def decode_data(data, property_specifications):
     decoded_data = 0
+
     if property_specifications["format"] == "float":
         decoded_data = decode_32bit_float(data)
+    elif property_specifications["format"] == "U_WORD":
+        decoded_data = data[0]
+    elif property_specifications["format"] == "UD_WORD":
+        decoded_data = (data[0] << 16) + data[1]
+    elif property_specifications["format"] == "S_WORD":
+        decoded_data = decode_16bit_signed(data)
+    elif property_specifications["format"] == "SD_WORD":
+        decoded_data = decode_32bit_signed(data)
 
-    return decoded_data
+    if "divider" in property_specifications:
+        decoded_data /= property_specifications["divider"]
 
+    return round(decoded_data, 2)
+
+def decode_16bit_signed(data):
+    return BinaryPayloadDecoder.fromRegisters(data, byteorder=Endian.BIG,
+                                              wordorder=Endian.BIG).decode_16bit_int()
+
+def decode_32bit_signed(data):
+    return BinaryPayloadDecoder.fromRegisters(data, byteorder=Endian.BIG,
+                                              wordorder=Endian.BIG).decode_32bit_int()
 
 def decode_32bit_float(data):
     decoded_data = BinaryPayloadDecoder.fromRegisters(data, byteorder=Endian.BIG,
                                                       wordorder=Endian.BIG).decode_32bit_float()
+    return decoded_data
+
+def decode_16bit_float(data):
+    decoded_data = BinaryPayloadDecoder.fromRegisters(data, byteorder=Endian.BIG,
+                                                      wordorder=Endian.BIG).decode_16bit_float()
     return decoded_data
 
 
@@ -55,31 +79,31 @@ class SerialReaderRS485:
 
     def read_property(self, property_name: str):
         """
-        Read register value from serial device
-        :param property_name: name from device.json
-        :return: Value from register(s)
+        Зчитує значення з регістру серійного пристрою
+        :param property_name: назва параметру з device.json
+        :return: Значення з регістру
         """
         if self.connect():
             property_specifications = self.property_specifications_list[property_name]
             property_address = property_specifications['register']
+            count = 4 if property_specifications["format"] in ["float", "UD_WORD", "SD_WORD"] else 4
 
-            response = {}
             try:
                 if property_specifications["type"] == "holding":
-                    response = self.client.read_holding_registers(property_address, count=4,
+                    response = self.client.read_holding_registers(property_address, count=count,
                                                                   slave=self.device_address)
-                if property_specifications["type"] == "input":
-                    response = self.client.read_input_registers(property_address, count=4,
+                elif property_specifications["type"] == "input":
+                    response = self.client.read_input_registers(property_address, count=count,
                                                                 slave=self.device_address)
                 if response.isError():
                     error(
-                        f"{datetime.now().strftime("%d/%m/%Y %H:%M:%S")} | There is no response | {property_specifications}")
+                        f"{datetime.now().strftime('%d/%m/%Y %H:%M:%S')} | No response | {property_specifications}")
                     return None
 
                 return decode_data(data=response.registers, property_specifications=property_specifications)
 
             except Exception as e:
-                error(f"{datetime.now().strftime("%d/%m/%Y %H:%M:%S")} | {e}")
+                error(f"{datetime.now().strftime('%d/%m/%Y %H:%M:%S')} | {e}")
 
             finally:
                 self.client.close()
@@ -88,7 +112,7 @@ class SerialReaderRS485:
             error("Device not connected")
 
     def read_all_properties(self):
-        results = {"device_id": self.device_custom_name}
+        results = {}#"device_id": self.device_custom_name}
 
         for property_name in self.property_specifications_list.keys():
             value = self.read_property(property_name)

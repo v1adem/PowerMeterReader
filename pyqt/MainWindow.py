@@ -1,32 +1,48 @@
-from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QMenu, QMenuBar
+from PyQt5.QtWidgets import QMainWindow, QStackedWidget, QAction
 
-from pyqt.MainScreen import MainScreen
-from pyqt.SettingsWidget import SettingsWidget
+from pyqt.dialogs.SettingsDialog import SettingsDialog
+from pyqt.widgets.StatisticsWidget import StatisticsWidget
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setGeometry(100, 100, 800, 600)
-        self.setWindowTitle("ERGON EMS")
+        self.setFixedWidth(800)
+        self.setFixedHeight(600)
 
-        # Create a menu bar
-        menu_bar = QMenuBar()
-        file_menu = QMenu('Account', self)
-        menu_bar.addMenu(file_menu)
-        view_menu = QMenu('View', self)
-        menu_bar.addMenu(view_menu)
-        settings_menu = QMenu('Settings', self)
-        settings_menu.addAction(self.set_widget(SettingsWidget()))
-        menu_bar.addMenu(settings_menu)
-        help_menu = QMenu('Help', self)
-        menu_bar.addMenu(help_menu)
-        self.setMenuBar(menu_bar)
 
-        self.central_widget = MainScreen()
+        self.setWindowTitle("Ergon EMS")
+
+        self.central_widget = QStackedWidget()
         self.setCentralWidget(self.central_widget)
-        self.layout = QVBoxLayout(self.central_widget)
 
-    def set_widget(self, widget):
-        self.layout.replaceWidget(widget, self.central_widget)
+        self.statistics_widget = StatisticsWidget("ElNetPQ")
+        self.central_widget.addWidget(self.statistics_widget)
+        self.central_widget.setCurrentWidget(self.statistics_widget)
+
+        self.setup_menu_bar()
+
+    def setup_menu_bar(self):
+        menubar = self.menuBar()
+
+        file_action = QAction("File", self)
+        menubar.addAction(file_action)
+
+        account_action = QAction("Account", self)
+        menubar.addAction(account_action)
+
+        settings_action = QAction("Settings", self)
+        settings_action.triggered.connect(self.open_settings_dialog)
+        menubar.addAction(settings_action)
+
+        update_data_action = QAction("Update Data", self)
+        menubar.addAction(update_data_action)
+
+        help_action = QAction("Help", self)
+        menubar.addAction(help_action)
+
+    def open_settings_dialog(self):
+        dialog = SettingsDialog()
+        if dialog.exec_():
+            print("Settings applied")

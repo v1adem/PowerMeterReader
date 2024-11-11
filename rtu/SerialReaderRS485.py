@@ -28,18 +28,22 @@ def decode_data(data, property_specifications):
 
     return round(decoded_data, 2)
 
+
 def decode_16bit_signed(data):
     return BinaryPayloadDecoder.fromRegisters(data, byteorder=Endian.BIG,
                                               wordorder=Endian.BIG).decode_16bit_int()
+
 
 def decode_32bit_signed(data):
     return BinaryPayloadDecoder.fromRegisters(data, byteorder=Endian.BIG,
                                               wordorder=Endian.BIG).decode_32bit_int()
 
+
 def decode_32bit_float(data):
     decoded_data = BinaryPayloadDecoder.fromRegisters(data, byteorder=Endian.BIG,
                                                       wordorder=Endian.BIG).decode_32bit_float()
     return decoded_data
+
 
 def decode_16bit_float(data):
     decoded_data = BinaryPayloadDecoder.fromRegisters(data, byteorder=Endian.BIG,
@@ -112,7 +116,7 @@ class SerialReaderRS485:
             error("Device not connected")
 
     def read_all_properties(self):
-        results = {}#"device_id": self.device_custom_name}
+        results = {}  # "device_id": self.device_custom_name}
 
         for property_name in self.property_specifications_list.keys():
             value = self.read_property(property_name)

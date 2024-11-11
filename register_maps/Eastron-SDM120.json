@@ -46,5 +46,29 @@
     "type": "input",
     "format": "float",
     "units": "kWh"
+  },
+  "Import reactive energy": {
+    "register": 76,
+    "type": "input",
+    "format": "float",
+    "units": "kvarh"
+  },
+  "Export reactive energy": {
+    "register": 78,
+    "type": "input",
+    "format": "float",
+    "units": "kvarh"
+  },
+  "Total active energy": {
+    "register": 342,
+    "type": "input",
+    "format": "float",
+    "units": "kWh"
+  },
+  "Total reactive energy": {
+    "register": 344,
+    "type": "input",
+    "format": "float",
+    "units": "Kvarh "
   }
 }

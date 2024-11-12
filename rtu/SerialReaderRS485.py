@@ -1,4 +1,3 @@
-import csv
 import json
 import os
 from datetime import datetime
@@ -45,11 +44,6 @@ def decode_32bit_float(data):
     return decoded_data
 
 
-def decode_16bit_float(data):
-    decoded_data = BinaryPayloadDecoder.fromRegisters(data, byteorder=Endian.BIG,
-                                                      wordorder=Endian.BIG).decode_16bit_float()
-    return decoded_data
-
 
 class SerialReaderRS485:
     def __init__(self,
@@ -71,22 +65,17 @@ class SerialReaderRS485:
         self.property_specifications_list = property_specifications_list
 
         self.client = ModbusSerialClient(
-            port=port,
-            baudrate=baudrate[0],
-            parity=parity[0],
+            port=f"COM{port}",
+            baudrate=baudrate,
+            parity=parity,
             stopbits=stopbits,
-            bytesize=bytesize[0],
+            bytesize=bytesize,
         )
 
     def connect(self):
         return self.client.connect()
 
     def read_property(self, property_name: str):
-        """
-        Зчитує значення з регістру серійного пристрою
-        :param property_name: назва параметру з device.json
-        :return: Значення з регістру
-        """
         if self.connect():
             property_specifications = self.property_specifications_list[property_name]
             property_address = property_specifications['register']
@@ -115,28 +104,10 @@ class SerialReaderRS485:
         else:
             error("Device not connected")
 
-    def read_all_properties(self):
-        results = {}  # "device_id": self.device_custom_name}
-
-        for property_name in self.property_specifications_list.keys():
+    def read_all_properties(self, properties_list):
+        result = {}
+        for property_name in properties_list:
             value = self.read_property(property_name)
-
-            results[property_name] = {
-                "value": value,
-                "units": self.property_specifications_list[property_name]["units"]
-            }
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{self.device_custom_name}_{timestamp}.csv"
-        filepath = os.path.join(os.path.dirname(__file__), '..', 'reports', filename)
-
-        with open(filepath, mode='w', newline='') as file:
-            writer = csv.writer(file, delimiter=';')
-            writer.writerow(["Parameter", "Value", "Units"])
-            for prop, data in results.items():
-                if isinstance(data, dict) and "value" in data and "units" in data:
-                    writer.writerow([prop, data["value"], data["units"]])
-                else:
-                    writer.writerow([prop, data, ""])
-
-        return filepath
+            if value is not None:
+                result[property_name] = value
+        return result

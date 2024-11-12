@@ -18,8 +18,8 @@ class Device(Base):
     parity = Column(String, nullable=False, default='N')
 
     reading_type = Column(Integer, nullable=False, default=1)  # 1 for interval, 2 for time
-    reading_interval = Column(Integer, nullable=False, default=3600)
-    reading_time = Column(Float, nullable=False, default=0)
+    reading_interval = Column(Integer, nullable=False, default=3600) # Seconds
+    reading_time = Column(Integer, nullable=False, default=0) # Minutes
 
     # String with parameters to read in format {Parameter1:Units1, Parameter2:Units2,...,ParameterN:UnitsN}
     parameters = Column(String, nullable=False, default="Voltage:V,Current:A,Power:W")
@@ -29,3 +29,13 @@ class Device(Base):
     def __repr__(self):
         return (f"<Device(id={self.id}, name='{self.name}', manufacturer='{self.manufacturer}', "
                 f"model='{self.model}', device_address={self.device_address}, project_id={self.project_id})>")
+
+    def get_parameter_names(self):
+        pairs = self.parameters.split(',')
+        parameter_names = [pair.split(':')[0].strip() for pair in pairs]
+        return parameter_names
+
+    def get_parameter_pairs(self):
+        pairs = self.parameters.split(',')
+        parameter_pairs = [tuple(pair.split(':')) for pair in pairs]
+        return parameter_pairs

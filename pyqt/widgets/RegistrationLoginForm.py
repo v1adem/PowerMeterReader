@@ -14,34 +14,27 @@ class RegistrationLoginForm(QWidget):
 
         self.setWindowTitle("Реєстрація / Логін")
 
-        # Основний лейаут для центрування форми
         main_layout = QVBoxLayout(self)
         main_layout.setAlignment(Qt.AlignCenter)
 
-        # Лейаут для центрування по горизонталі
         center_layout = QHBoxLayout()
 
-        # Лейаут для форми
         form_layout = QVBoxLayout()
 
-        # Повідомлення, яке буде показуватись вгорі
         self.status_label = QLabel(self)
         form_layout.addWidget(self.status_label, alignment=Qt.AlignCenter)
 
-        # Поле для логіну
         self.username_label = QLabel("Логін:", self)
         self.username_input = QLineEdit(self)
         form_layout.addWidget(self.username_label)
         form_layout.addWidget(self.username_input)
 
-        # Поле для паролю
         self.password_label = QLabel("Пароль:", self)
         self.password_input = QLineEdit(self)
         self.password_input.setEchoMode(QLineEdit.Password)
         form_layout.addWidget(self.password_label)
         form_layout.addWidget(self.password_input)
 
-        # Кнопки для входу та реєстрації
         self.login_button = QPushButton("Вхід")
         self.login_button.clicked.connect(self.login)
         self.register_button = QPushButton("Реєстрація")
@@ -53,24 +46,19 @@ class RegistrationLoginForm(QWidget):
         form_layout.addWidget(self.register_button)
         form_layout.addWidget(self.guest_button)
 
-        # Встановлюємо ширину форми на середню третину екрану
         form_widget = QWidget()
         form_widget.setLayout(form_layout)
-        form_widget.setFixedWidth(self.main_window.width() // 3)  # ширина на 1/3 від екрану
+        form_widget.setFixedWidth(self.main_window.width() // 3)
 
-        # Додаємо форму до горизонтального лейаута для центрування
         center_layout.addWidget(form_widget)
 
-        # Додаємо центровий лейаут до основного лейауту
         main_layout.addLayout(center_layout)
 
-        # Встановлюємо відстань між елементами
         main_layout.setSpacing(10)
 
         self.check_if_first_run()
 
     def check_if_first_run(self):
-        """Перевірка на наявність адміністратора в БД при першому запуску програми."""
         admin = self.db_session.query(Admin).first()
 
         if admin:

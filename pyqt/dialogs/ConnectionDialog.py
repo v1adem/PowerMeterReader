@@ -18,7 +18,7 @@ class ConnectionDialog(QDialog):
         layout = QVBoxLayout(self)
 
         # Статус
-        self.status_label = QLabel("Статус: Невідомо", self)
+        self.status_label = QLabel(f"Статус PORT:COM{self.db_session.query(Admin).first().port}: Невідомо", self)
         self.status_label.setStyleSheet("color: red;")
         layout.addWidget(self.status_label)
 
@@ -48,10 +48,10 @@ class ConnectionDialog(QDialog):
         self.connection_status = self.check_converter_connection()
 
         if self.connection_status:
-            self.status_label.setText("Статус: З'єднання успішне")
+            self.status_label.setText(f"Статус PORT:COM{self.db_session.query(Admin).first().port} : З'єднання успішне")
             self.status_label.setStyleSheet("color: green;")
         else:
-            self.status_label.setText("Статус: Немає з'єднання! Див. Допомога")
+            self.status_label.setText(f"Статус PORT:COM{self.db_session.query(Admin).first().port} : Немає з'єднання! Див. Допомога")
             self.status_label.setStyleSheet("color: red;")
 
     def check_converter_connection(self):

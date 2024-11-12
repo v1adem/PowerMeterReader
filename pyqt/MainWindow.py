@@ -1,22 +1,32 @@
 from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, \
     QStackedWidget, QAction, QDialog
 
+from PyQt5.QtCore import QTimer
+
 from pyqt.dialogs.ConnectionDialog import ConnectionDialog
 from pyqt.dialogs.LanguageDialog import LanguageDialog
 from pyqt.widgets.DeviceDetailsWidget import DeviceDetailsWidget
 from pyqt.widgets.ProjectViewWidget import ProjectViewWidget
 from pyqt.widgets.ProjectsWidget import ProjectsWidget
 from pyqt.widgets.RegistrationLoginForm import RegistrationLoginForm
+from rtu.DataCollector import DataCollector
 
 
 class MainWindow(QMainWindow):
     def __init__(self, db_session):
         super().__init__()
 
+        self.data_collector = DataCollector(db_session)
+
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.data_collector.collect_data)
+        self.timer.setInterval(60000)
+        self.timer.start()
+
         self.db_session = db_session
         self.isAdmin = False
 
-        self.setWindowTitle("Ergon EMS")
+        self.setWindowTitle("EON EMS (SDM120 edition)")
         self.setGeometry(100, 100, 800, 600)
         self.setMinimumWidth(800)
         self.setMinimumHeight(600)
@@ -93,3 +103,8 @@ class MainWindow(QMainWindow):
             self.stacked_widget.addWidget(self.registration_widget)
 
             self.stacked_widget.setCurrentIndex(0)
+
+    def closeEvent(self, event):
+        self.data_collector_thread.quit()
+        self.data_collector_thread.wait()
+        super().closeEvent(event)

@@ -17,13 +17,11 @@ class LanguageDialog(QDialog):
         self.language_combo.addItems(["Українська", "English"])
         layout.addWidget(self.language_combo)
 
-        # Кнопки підтвердження або скасування
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-        # Зменшення відступів між елементами
         layout.setContentsMargins(10, 10, 10, 10)
 
         self.selected_language = self.language_combo.currentText()

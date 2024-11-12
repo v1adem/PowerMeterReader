@@ -104,8 +104,8 @@ class ProjectsWidget(QWidget):
             self.load_projects()
 
     def open_project_details(self, index):
-        project_name = self.projects_model.itemFromIndex(index).data(Qt.UserRole)  # Отримуємо назву проєкту з Qt.UserRole
-        project = self.db_session.query(Project).filter_by(name=project_name).first()  # Знаходимо проєкт за назвою
+        project_name = self.projects_model.itemFromIndex(index).data(Qt.UserRole)
+        project = self.db_session.query(Project).filter_by(name=project_name).first()
         if project:
             self.main_window.open_project_details(project)
         else:

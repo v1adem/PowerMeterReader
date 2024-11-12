@@ -2,6 +2,9 @@ from sqlalchemy import Column, Integer, Float, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
+from datetime import datetime
+from tzlocal import get_localzone
+
 from config import Base
 
 
@@ -10,7 +13,7 @@ class SDM120Report(Base):
 
     id = Column(Integer, primary_key=True)
     device_id = Column(Integer, ForeignKey('devices.id'), nullable=False)
-    timestamp = Column(DateTime, server_default=func.now(), nullable=False)
+    timestamp = Column(DateTime, nullable=False, default=lambda: datetime.now(get_localzone()))
 
     device = relationship("Device")
 

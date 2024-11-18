@@ -1,7 +1,10 @@
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QPushButton, QLabel, QListView, QInputDialog, QMessageBox, \
-    QHBoxLayout
+from PyQt5.QtWidgets import (
+    QWidget, QVBoxLayout, QLabel, QListView, QPushButton, QMessageBox, QInputDialog, QComboBox, QHBoxLayout, QDialog,
+    QDialogButtonBox, QSpinBox, QLineEdit
+)
 from PyQt5.QtGui import QStandardItemModel, QStandardItem, QIcon
 from PyQt5.QtCore import Qt, QSize
+
 from models.Project import Project
 
 
@@ -44,29 +47,63 @@ class ProjectsWidget(QWidget):
         for project in projects:
             item = QStandardItem()
             item.setData(project.name, Qt.UserRole)
-            item.setSizeHint(QSize(0, 36))
+            item.setSizeHint(QSize(0, 50))
             self.projects_model.appendRow(item)
 
             item_widget = QWidget()
             item_layout = QHBoxLayout(item_widget)
+
             item_layout.addWidget(QLabel(project.name))
 
+            port_combo = QComboBox()
+            port_combo.addItems([str(i) for i in range(1, 256)])
+            port_combo.setCurrentText(str(project.port))
+            port_combo.setFixedWidth(60)
+            port_combo.currentIndexChanged.connect(
+                lambda _, p=project, combo=port_combo: self.change_project_port(p, combo.currentText())
+            )
+
+            # Індикатор стану з'єднання
+            connection_label = QLabel()
+            self.update_connection_status(project, connection_label)
+            item_layout.addWidget(connection_label)
+
+            # Кнопка редагування
             edit_button = QPushButton()
             edit_button.setIcon(QIcon("pyqt/icons/edit.png"))
             edit_button.setFixedSize(24, 24)
             edit_button.clicked.connect(lambda _, p=project: self.edit_project(p))
 
+            # Кнопка видалення
             delete_button = QPushButton()
             delete_button.setIcon(QIcon("pyqt/icons/delete.png"))
             delete_button.setFixedSize(24, 24)
             delete_button.clicked.connect(lambda _, p=project: self.delete_project(p))
 
-            item_layout.addWidget(edit_button)
-            item_layout.addWidget(delete_button)
-            item_layout.setContentsMargins(0, 0, 0, 0)
+            if self.isAdmin:
+                item_layout.addWidget(port_combo)
+                item_layout.addWidget(edit_button)
+                item_layout.addWidget(delete_button)
 
+            item_layout.setContentsMargins(0, 0, 0, 0)
             self.projects_list.setIndexWidget(item.index(), item_widget)
 
+    def update_connection_status(self, project, label):
+        if self.is_connected(project.port):
+            label.setText("✅ З'єднання успішне")
+            label.setStyleSheet("color: green;")
+        else:
+            label.setText("❌ Немає з'єднання")
+            label.setStyleSheet("color: red;")
+
+    def change_project_port(self, project, new_port):
+        project.port = int(new_port)
+        self.db_session.commit()
+
+        self.load_projects()
+
+    def is_connected(self, port):
+        return False  # TODO
 
     def add_new_project(self):
         project_name, ok = QInputDialog.getText(self, "Додати новий проєкт", "Введіть назву проєкту:")
@@ -77,7 +114,7 @@ class ProjectsWidget(QWidget):
                 QMessageBox.warning(self, "Помилка", "Проєкт з такою назвою вже існує.")
                 return
 
-            new_project = Project(name=project_name)
+            new_project = Project(name=project_name, port=1)  # За замовчуванням порт 1
             self.db_session.add(new_project)
             self.db_session.commit()
 
@@ -93,13 +130,106 @@ class ProjectsWidget(QWidget):
             self.load_projects()
 
     def edit_project(self, project):
-        new_name, ok = QInputDialog.getText(self, "Редагувати проєкт", "Введіть нову назву:", text=project.name)
-        if ok and new_name:
-            existing_project = self.db_session.query(Project).filter_by(name=new_name).first()
-            if existing_project:
-                QMessageBox.warning(self, "Помилка", "Проєкт з такою назвою вже існує.")
-                return
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Редагувати проєкт")
+
+        layout = QVBoxLayout(dialog)
+
+        info_label = QLabel(
+            "Усі параметри проєкту мають збігатися з налаштуваннями на пристроях і з налаштуваннями "
+            "серійного порту Вашого ПК до якого підключений перетворювач."
+        )
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+
+        def open_device_manager():
+            import os
+            import platform
+
+            if platform.system() == "Windows":
+                os.system("start devmgmt.msc")  # Відкрити "Диспетчер пристроїв" у Windows
+            else:
+                QMessageBox.information(
+                    self, "Недоступно", "Функція доступна лише на Windows."
+                )
+
+        open_settings_button = QPushButton("Подивитися налаштування порту")
+        open_settings_button.clicked.connect(open_device_manager)
+        layout.addWidget(open_settings_button)
+
+        # Поле для редагування назви
+        name_label = QLabel("Назва проєкту:")
+        name_edit = QLineEdit(project.name)
+        layout.addWidget(name_label)
+        layout.addWidget(name_edit)
+
+        # Поле для опису
+        description_label = QLabel("Опис:")
+        description_edit = QLineEdit(project.description or "")
+        layout.addWidget(description_label)
+        layout.addWidget(description_edit)
+
+        # Поле для вибору baudrate
+        baudrate_label = QLabel("Baudrate:")
+        baudrate_edit = QComboBox()
+        baudrate_options = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200]
+        baudrate_edit.addItems(map(str, baudrate_options))
+        baudrate_edit.setCurrentText(str(project.baudrate))
+        layout.addWidget(baudrate_label)
+        layout.addWidget(baudrate_edit)
+
+        # Поле для вибору bytesize
+        bytesize_label = QLabel("Bytesize:")
+        bytesize_edit = QSpinBox()
+        bytesize_edit.setRange(5, 8)
+        bytesize_edit.setValue(project.bytesize)
+        layout.addWidget(bytesize_label)
+        layout.addWidget(bytesize_edit)
+
+        # Поле для вибору stopbits
+        stopbits_label = QLabel("Stopbits:")
+        stopbits_edit = QComboBox()
+        stopbits_edit.addItems(["1", "1.5", "2"])
+        stopbits_edit.setCurrentText(str(project.stopbits))
+        layout.addWidget(stopbits_label)
+        layout.addWidget(stopbits_edit)
+
+        # Поле для вибору parity
+        parity_label = QLabel("Parity:")
+        parity_edit = QComboBox()
+        parity_edit.addItems(["N", "E", "O"])  # None, Even, Odd
+        parity_edit.setCurrentText(project.parity)
+        layout.addWidget(parity_label)
+        layout.addWidget(parity_edit)
+
+        # Кнопки підтвердження та скасування
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        layout.addWidget(button_box)
+
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+
+        if dialog.exec_() == QDialog.Accepted:
+            new_name = name_edit.text().strip()
+            new_description = description_edit.text().strip()
+            new_baudrate = int(baudrate_edit.currentText())
+            new_bytesize = bytesize_edit.value()
+            new_stopbits = float(stopbits_edit.currentText())
+            new_parity = parity_edit.currentText()
+
+            if new_name != project.name:
+                existing_project = self.db_session.query(Project).filter_by(name=new_name).first()
+                if existing_project:
+                    QMessageBox.warning(self, "Помилка", "Проєкт з такою назвою вже існує.")
+                    return
+
             project.name = new_name
+            project.description = new_description
+            project.baudrate = new_baudrate
+            project.bytesize = new_bytesize
+            project.stopbits = new_stopbits
+            project.parity = new_parity
+
             self.db_session.commit()
             self.load_projects()
 
@@ -109,4 +239,4 @@ class ProjectsWidget(QWidget):
         if project:
             self.main_window.open_project_details(project)
         else:
-            print("AAAAAAAAAAAAAAAAAAAAAAAA")
+            print("Couldn't find project")

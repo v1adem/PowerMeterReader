@@ -47,23 +47,40 @@ class ProjectViewWidget(QWidget):
 
             item_widget = QWidget()
             item_layout = QHBoxLayout(item_widget)
-            item_layout.addWidget(QLabel(device.name))
+
+            name_label = QLabel(device.name)
+            item_layout.addWidget(name_label)
+
+            toggle_status_button = QPushButton("Зчитувати" if not device.get_reading_status() else "Не зчитувати")
+            toggle_status_button.setFixedSize(100, 24)
+            toggle_status_button.clicked.connect(
+                lambda _, d=device, btn=toggle_status_button: self.toggle_device_status(d, btn))
+            item_layout.addWidget(toggle_status_button)
 
             edit_button = QPushButton()
             edit_button.setIcon(QIcon("pyqt/icons/edit.png"))
             edit_button.setFixedSize(24, 24)
             edit_button.clicked.connect(lambda _, d=device: self.edit_device(d))
+            item_layout.addWidget(edit_button)
 
             delete_button = QPushButton()
             delete_button.setIcon(QIcon("pyqt/icons/delete.png"))
             delete_button.setFixedSize(24, 24)
             delete_button.clicked.connect(lambda _, d=device: self.delete_device(d))
-
-            item_layout.addWidget(edit_button)
             item_layout.addWidget(delete_button)
+
             item_layout.setContentsMargins(0, 0, 0, 0)
 
             self.devices_list.setIndexWidget(item.index(), item_widget)
+
+    def toggle_device_status(self, device, button):
+        try:
+            device.toggle_reading_status()
+            self.db_session.commit()
+            button.setText("Зчитувати" if not device.get_reading_status() else "Не зчитувати")
+        except Exception as e:
+            QMessageBox.critical(self, "Помилка", f"Не вдалося змінити статус пристрою: {e}")
+
 
     def add_new_device(self):
         try:
@@ -98,17 +115,20 @@ class ProjectViewWidget(QWidget):
                 model = model_input.currentText()
                 device_address = device_address_input.value()
 
-                existing_device = self.db_session.query(Device).filter_by(name=device_name, project_id=self.project.id).first()
+                existing_device = self.db_session.query(Device).filter_by(name=device_name,
+                                                                          project_id=self.project.id).first()
                 if existing_device:
                     QMessageBox.warning(self, "Помилка", "Пристрій з такою назвою вже існує в проєкті.")
                     return
 
-                existing_address = self.db_session.query(Device).filter_by(device_address=device_address, project_id=self.project.id).first()
+                existing_address = self.db_session.query(Device).filter_by(device_address=device_address,
+                                                                           project_id=self.project.id).first()
                 if existing_address:
                     QMessageBox.warning(self, "Помилка", "Пристрій з такою адресою вже існує в проєкті.")
                     return
 
-                new_device = Device(name=device_name, manufacturer=manufacturer, model=model, device_address=device_address, project_id=self.project.id)
+                new_device = Device(name=device_name, manufacturer=manufacturer, model=model,
+                                    device_address=device_address, project_id=self.project.id)
                 self.db_session.add(new_device)
                 self.db_session.commit()
 
@@ -116,7 +136,6 @@ class ProjectViewWidget(QWidget):
         except Exception as e:
             print(f"Помилка при додаванні пристрою: {e}")
             QMessageBox.critical(self, "Помилка", "Не вдалося додати пристрій.")
-
 
     def edit_device(self, device):
         dialog = QDialog(self)
@@ -147,27 +166,6 @@ class ProjectViewWidget(QWidget):
         device_address_input.setRange(1, 255)
         device_address_input.setValue(device.device_address)
         form_layout.addRow("Адреса пристрою:", device_address_input)
-
-        # Інші налаштування зв'язку
-        baudrate_input = QSpinBox(dialog)
-        baudrate_input.setRange(1200, 115200)
-        baudrate_input.setValue(device.baudrate)
-        form_layout.addRow("Швидкість передачі (baudrate):", baudrate_input)
-
-        bytesize_input = QSpinBox(dialog)
-        bytesize_input.setRange(5, 8)
-        bytesize_input.setValue(device.bytesize)
-        form_layout.addRow("Розмір байтів:", bytesize_input)
-
-        stopbits_input = QSpinBox(dialog)
-        stopbits_input.setRange(1, 2)
-        stopbits_input.setValue(device.stopbits)
-        form_layout.addRow("Кількість стоп-бітів:", stopbits_input)
-
-        parity_input = QComboBox(dialog)
-        parity_input.addItems(['N', 'E', 'O'])
-        parity_input.setCurrentText(device.parity)
-        form_layout.addRow("Парність:", parity_input)
 
         # Тип зчитування
         reading_type_interval = QRadioButton("Інтервал")
@@ -229,10 +227,6 @@ class ProjectViewWidget(QWidget):
             device.manufacturer = manufacturer_input.currentText()
             device.model = model_input.currentText()
             device.device_address = device_address_input.value()
-            device.baudrate = baudrate_input.value()
-            device.bytesize = bytesize_input.value()
-            device.stopbits = stopbits_input.value()
-            device.parity = parity_input.currentText()
             device.reading_type = 1 if reading_type_interval.isChecked() else 2
             device.reading_interval = reading_interval_input.value() * 60 if reading_type_interval.isChecked() else 0
             device.reading_time = reading_time_input.time().secsTo(

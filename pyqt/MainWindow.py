@@ -3,6 +3,7 @@ from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, \
 
 from PyQt5.QtCore import QTimer
 
+from models.Admin import Admin
 from pyqt.dialogs.ConnectionDialog import ConnectionDialog
 from pyqt.dialogs.LanguageDialog import LanguageDialog
 from pyqt.widgets.DeviceDetailsWidget import DeviceDetailsWidget
@@ -21,7 +22,7 @@ class MainWindow(QMainWindow):
         self.timer = QTimer()
         self.timer.timeout.connect(self.data_collector.collect_data)
         self.timer.setInterval(60000)
-        self.timer.start()
+        # self.timer.start()
 
         self.db_session = db_session
         self.isAdmin = False
@@ -37,11 +38,6 @@ class MainWindow(QMainWindow):
         self.menu_bar.addAction(back_action)
         back_action.triggered.connect(self.go_back)
 
-        connection_menu = self.menu_bar.addMenu("З'єднання")
-        connection_action = QAction("З'єднання", self)
-        connection_action.triggered.connect(self.open_connection_dialog)
-        connection_menu.addAction(connection_action)
-
         settings_menu = self.menu_bar.addMenu("Налаштування")
         language_action = QAction("Мова", self)
         settings_menu.addAction(language_action)
@@ -54,10 +50,17 @@ class MainWindow(QMainWindow):
         self.central_layout = QVBoxLayout(self.central_widget)
         self.central_layout.addWidget(self.stacked_widget)
 
+        admin = self.db_session.query(Admin).first()
+
         self.registration_widget = RegistrationLoginForm(self)
         self.stacked_widget.addWidget(self.registration_widget)
 
         self.stacked_widget.setCurrentIndex(0)
+        admin = self.db_session.query(Admin).first()
+        if admin is not None:
+            if admin.always_admin is True:
+                self.isAdmin = True
+                self.open_projects_list()
 
     def change_language(self):
         language_dialog = LanguageDialog(self)
@@ -85,6 +88,9 @@ class MainWindow(QMainWindow):
         self.stacked_widget.setCurrentIndex(3)
 
     def go_back(self):
+        self.setGeometry(100, 100, 800, 600)
+        self.setMinimumWidth(800)
+        self.setMinimumHeight(600)
         current_index = self.stacked_widget.currentIndex()
 
         if current_index > 0:
@@ -104,7 +110,7 @@ class MainWindow(QMainWindow):
 
             self.stacked_widget.setCurrentIndex(0)
 
-    def closeEvent(self, event):
-        self.data_collector_thread.quit()
-        self.data_collector_thread.wait()
-        super().closeEvent(event)
+    def set_big_window(self):
+        self.setGeometry(100, 100, 1200, 800)
+        self.setMinimumWidth(1200)
+        self.setMinimumHeight(800)

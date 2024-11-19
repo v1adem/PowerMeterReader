@@ -1,9 +1,10 @@
+import pandas as pd
 import pyqtgraph as pg
 from PyQt5 import QtWidgets
 from PyQt5.QtWidgets import QVBoxLayout, QPushButton, QLabel, QWidget, QSplitter, QTableView, QCalendarWidget, \
-    QHBoxLayout, QDialog, QLCDNumber
+    QHBoxLayout, QDialog, QLCDNumber, QDateTimeEdit, QMessageBox, QFileDialog
 from PyQt5.QtGui import QIcon, QStandardItemModel, QStandardItem
-from PyQt5.QtCore import Qt, QSortFilterProxyModel
+from PyQt5.QtCore import Qt, QSortFilterProxyModel, QDateTime
 from pyqtgraph import DateAxisItem
 from sqlalchemy import desc
 
@@ -37,6 +38,10 @@ class DeviceDetailsWidget(QWidget):
         refresh_button.setFixedSize(36, 36)
         refresh_button.clicked.connect(self.load_report_data)
         table_layout.addWidget(refresh_button)
+
+        export_button = QPushButton("Експорт в Excel")
+        export_button.clicked.connect(self.open_export_dialog)
+        table_layout.addWidget(export_button)
 
         self.report_table = QTableView(self)
         table_layout.addWidget(self.report_table)
@@ -318,3 +323,64 @@ class DeviceDetailsWidget(QWidget):
         self.voltage_graph_widget.plot([], pen=pg.mkPen(color='b', width=2))  # Синя лінія для напруги
         self.current_graph_widget.plot([], pen=pg.mkPen(color='r', width=2))  # Червона лінія для струму
         self.energy_graph_widget.plot([], pen=pg.mkPen(color='g', width=2))  # Зелена лінія для енергії
+
+    def open_export_dialog(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Експорт в Excel")
+        layout = QVBoxLayout(dialog)
+
+        date_range_layout = QHBoxLayout()
+        start_label = QLabel("Початок:")
+        self.start_date = QDateTimeEdit(QDateTime.currentDateTime())
+        self.start_date.setCalendarPopup(True)
+        end_label = QLabel("Кінець:")
+        self.end_date = QDateTimeEdit(QDateTime.currentDateTime())
+        self.end_date.setCalendarPopup(True)
+
+        date_range_layout.addWidget(start_label)
+        date_range_layout.addWidget(self.start_date)
+        date_range_layout.addWidget(end_label)
+        date_range_layout.addWidget(self.end_date)
+
+        layout.addLayout(date_range_layout)
+
+        save_button = QPushButton("Зберегти в Excel")
+        save_button.clicked.connect(self.export_to_excel)
+
+        layout.addWidget(save_button)
+
+        dialog.setLayout(layout)
+        dialog.exec()
+
+    def export_to_excel(self):
+        # Отримуємо початкову та кінцеву дату
+        start_datetime = self.start_date.dateTime().toPyDateTime()
+        end_datetime = self.end_date.dateTime().toPyDateTime()
+
+        # Фільтруємо дані за діапазоном часу
+        report_data = self.db_session.query(SDM120Report).filter(
+            SDM120Report.device_id == self.device.id,
+            SDM120Report.timestamp >= start_datetime,
+            SDM120Report.timestamp <= end_datetime
+        ).order_by(SDM120Report.timestamp).all()
+
+        if not report_data:
+            QMessageBox.warning(self, "Експорт", "Дані за вибраний період відсутні.")
+            return
+
+        # Перетворюємо дані у DataFrame
+        data = [{
+            "Час": report.timestamp,
+            "Напруга (V)": report.voltage,
+            "Струм (A)": report.current,
+            "Енергія (kWh)": report.total_active_energy,
+        } for report in report_data]
+
+        df = pd.DataFrame(data)
+
+        # Діалог для вибору шляху збереження
+        save_path, _ = QFileDialog.getSaveFileName(self, "Зберегти файл", "", "Excel Files (*.xlsx);;All Files (*)")
+
+        if save_path:
+            df.to_excel(save_path, index=False)
+            QMessageBox.information(self, "Експорт", f"Дані успішно збережено в {save_path}")

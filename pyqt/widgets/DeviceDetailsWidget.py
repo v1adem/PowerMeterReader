@@ -1,15 +1,13 @@
+import pyqtgraph as pg
 from PyQt5 import QtWidgets
-from PyQt5.QtGui import QIcon, QStandardItem, QStandardItemModel, QFont
 from PyQt5.QtWidgets import QVBoxLayout, QPushButton, QLabel, QWidget, QSplitter, QTableView, QCalendarWidget, \
     QHBoxLayout, QDialog, QLCDNumber
+from PyQt5.QtGui import QIcon, QStandardItemModel, QStandardItem
 from PyQt5.QtCore import Qt, QSortFilterProxyModel
+from pyqtgraph import DateAxisItem
 from sqlalchemy import desc
 
 from models.Report import SDM120Report, SDM630Report
-
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
-
 
 class DeviceDetailsWidget(QWidget):
     def __init__(self, main_window, device):
@@ -23,7 +21,7 @@ class DeviceDetailsWidget(QWidget):
 
         # Основний горизонтальний QSplitter
         main_splitter = QSplitter(Qt.Horizontal)
-        main_splitter.setChildrenCollapsible(False)  # Забороняємо колапс секцій
+        main_splitter.setChildrenCollapsible(False)
         layout.addWidget(main_splitter)
 
         # Ліва частина
@@ -48,7 +46,7 @@ class DeviceDetailsWidget(QWidget):
 
         # Права частина з вертикальною поділкою
         right_splitter = QSplitter(Qt.Vertical)
-        right_splitter.setChildrenCollapsible(False)  # Забороняємо колапс секцій
+        right_splitter.setChildrenCollapsible(False)
         main_splitter.addWidget(right_splitter)
 
         # Верхня частина правого спліттера (графіки)
@@ -61,12 +59,15 @@ class DeviceDetailsWidget(QWidget):
         top_right_layout.addWidget(self.select_range_button)
 
         # Графіки
-        self.figure = Figure()
-        self.canvas = FigureCanvas(self.figure)
-        top_right_layout.addWidget(self.canvas)
+        self.voltage_graph_widget = pg.PlotWidget()
+        self.current_graph_widget = pg.PlotWidget()
+        self.energy_graph_widget = pg.PlotWidget()
+
+        top_right_layout.addWidget(self.voltage_graph_widget)
+        top_right_layout.addWidget(self.current_graph_widget)
+        top_right_layout.addWidget(self.energy_graph_widget)
 
         right_splitter.addWidget(top_right_widget)
-
         # Нижня частина правого спліттера
         bottom_right_widget = QWidget()
         bottom_right_layout = QHBoxLayout(
@@ -75,15 +76,12 @@ class DeviceDetailsWidget(QWidget):
         # Створюємо індикатори
         self.voltage_lcd = QLCDNumber()
         self.voltage_lcd.setSegmentStyle(QLCDNumber.Flat)
-        #self.voltage_lcd.setFixedHeight(50)  # Задаємо фіксовану висоту
 
         self.current_lcd = QLCDNumber()
         self.current_lcd.setSegmentStyle(QLCDNumber.Flat)
-        #self.current_lcd.setFixedHeight(50)
 
         self.energy_lcd = QLCDNumber()
         self.energy_lcd.setSegmentStyle(QLCDNumber.Flat)
-        #self.energy_lcd.setFixedHeight(50)
 
         # Підписи до індикаторів
         voltage_label = QLabel("Напруга (V)")
@@ -114,14 +112,12 @@ class DeviceDetailsWidget(QWidget):
 
         right_splitter.addWidget(bottom_right_widget)
 
-        # Встановлюємо рівний поділ для головного сплітера
         self.set_splitter_fixed_ratios(main_splitter, [1, 1])
-
-        # Встановлюємо пропорцію 2:1 для правого вертикального сплітера
         self.set_splitter_fixed_ratios(right_splitter, [3, 1])
 
         self.load_report_data()
         self.plot_graphs()
+        self.set_light_theme()
 
     def set_splitter_fixed_ratios(self, splitter, ratios):
         """
@@ -207,9 +203,75 @@ class DeviceDetailsWidget(QWidget):
 
         self.update_indicators()
 
-    def plot_graphs(self, start_date=None, end_date=None):
-        """Малює графіки для вибраного проміжку або всіх даних."""
-        # Отримуємо дані для графіків з таблиці
+    def plot_voltage(self, timestamps, voltages):
+        # Конвертуємо datetime в UNIX timestamp для графіка
+        timestamps_numeric = [ts.timestamp() for ts in timestamps]
+
+        # Графік для напруги
+        self.voltage_graph_widget.clear()
+
+        # Використовуємо DateAxisItem для осі X
+        self.voltage_graph_widget.setAxisItems({'bottom': DateAxisItem()})
+
+        # Встановлюємо стиль графіка
+        self.voltage_graph_widget.plot(timestamps_numeric, voltages, pen=pg.mkPen(color='b', width=2), name="Напруга")
+        self.voltage_graph_widget.setYRange(0, 400)  # Встановлюємо фіксований діапазон для напруги
+        self.voltage_graph_widget.setLabel('bottom', 'Час', units='s')
+
+    def plot_current(self, timestamps, currents):
+        # Конвертуємо datetime в UNIX timestamp для графіка
+        timestamps_numeric = [ts.timestamp() for ts in timestamps]
+
+        # Графік для струму
+        self.current_graph_widget.clear()
+
+        # Використовуємо DateAxisItem для осі X
+        self.current_graph_widget.setAxisItems({'bottom': DateAxisItem()})
+
+        # Встановлюємо стиль графіка
+        self.current_graph_widget.plot(timestamps_numeric, currents, pen=pg.mkPen(color='r', width=2), name="Струм")
+        self.current_graph_widget.setYRange(0, 200)  # Встановлюємо фіксований діапазон для струму
+        self.current_graph_widget.setLabel('bottom', 'Час', units='s')
+
+    def plot_energy(self, hourly_timestamps, hourly_energy):
+        # Конвертуємо datetime в UNIX timestamp для графіка
+        hourly_timestamps_numeric = [ts.timestamp() for ts in hourly_timestamps]
+
+        # Список для координат x для стовпчиків, що визначатимуть початок і кінець кожної години
+        bar_x = []
+        bar_heights = []
+
+        # Визначаємо координати x для кожного стовпчика та висоту (енергію)
+        for i in range(len(hourly_timestamps_numeric)):
+            # Початок кожної години
+            start_time = hourly_timestamps_numeric[i]
+            # Кінець кожної години
+            end_time = hourly_timestamps_numeric[i] + 3600  # 3600 секунд = 1 година
+
+            # Додаємо в список координати x для кожного стовпчика (початок і кінець години)
+            bar_x.append((start_time, end_time))
+            bar_heights.append(hourly_energy[i])
+
+        # Графік для спожитої енергії (стовпчики для кожної години)
+        self.energy_graph_widget.clear()
+
+        # Використовуємо DateAxisItem для осі X
+        self.energy_graph_widget.setAxisItems({'bottom': DateAxisItem()})
+
+        # Створюємо стовпчики, де ширина стовпчика дорівнює 1 годині (3600 секунд)
+        bar_item = pg.BarGraphItem(x=[x[0] for x in bar_x], height=bar_heights, width=1800, brush='g')
+
+        # Додаємо стовпчики на графік
+        self.energy_graph_widget.addItem(bar_item)
+
+        # Встановлюємо максимальний діапазон для осі Y
+        self.energy_graph_widget.setYRange(0, max(hourly_energy))
+
+        # Встановлюємо мітки осі X
+        self.energy_graph_widget.setLabel('bottom', 'Час', units='s')
+
+    def plot_graphs(self):
+        # Отримуємо дані для звіту
         report_data = self.db_session.query(SDM120Report).filter_by(device_id=self.device.id).order_by(
             desc(SDM120Report.timestamp)).all()
 
@@ -218,44 +280,55 @@ class DeviceDetailsWidget(QWidget):
         currents = []
         energies = []
 
+        # Перетворюємо datetime в timestamp (кількість секунд з епохи Unix)
         for report in report_data:
-            timestamp = getattr(report, 'timestamp')  # timestamp є datetime.datetime
-            if start_date and end_date:
-                # Порівнюємо тільки дати
-                if not (start_date <= timestamp.date() <= end_date):
-                    continue
-            timestamps.append(timestamp)
-            voltages.append(getattr(report, 'voltage', 0))
-            currents.append(getattr(report, 'current', 0))
-            energies.append(getattr(report, 'total_active_energy', 0))
+            timestamps.append(report.timestamp)  # Зберігаємо як datetime об'єкти
+            voltages.append(report.voltage)
+            currents.append(report.current)
+            energies.append(report.total_active_energy)
 
-        # Очищення попередніх графіків
-        self.figure.clear()
+        # Обновлюємо графіки
+        self.plot_voltage(timestamps, voltages)
+        self.plot_current(timestamps, currents)
 
-        # Налаштування параметрів для графіків
-        small_fontsize = 8
-        ax1 = self.figure.add_subplot(311)
-        ax2 = self.figure.add_subplot(312)
-        ax3 = self.figure.add_subplot(313)
+        # Для енергії: Розрахунок спожитої енергії за кожну годину починаючи з 00:00
+        hourly_energy = []
+        hourly_timestamps = []
 
-        # Налаштування графіків
-        ax1.plot(timestamps, voltages, label="Напруга (V)")
-        ax1.set_ylabel("Напруга (V)", fontsize=small_fontsize)
-        ax1.legend(fontsize=small_fontsize)
+        # Ініціалізуємо змінні для обчислення енергії
+        last_energy = None
+        current_hour_start = 0  # Починаємо з 00:00
+        current_hour_energy = 0.0
+        first_timestamp = report_data[-1].timestamp.replace(minute=0, second=0, microsecond=0)
 
-        ax2.plot(timestamps, currents, label="Струм (A)", color="orange")
-        ax2.set_ylabel("Струм (A)", fontsize=small_fontsize)
-        ax2.legend(fontsize=small_fontsize)
+        # Пройдемо по всіх звітах та обчислимо енергію за кожну годину
+        for report in report_data:
+            # Рахуємо спожиту енергію по годинах
+            current_hour = report.timestamp.replace(minute=0, second=0, microsecond=0)
 
-        ax3.plot(timestamps, energies, label="Повна Активна Енергія (kWh)", color="green")
-        ax3.set_ylabel("Енергія (kWh)", fontsize=small_fontsize)
-        ax3.legend(fontsize=small_fontsize)
+            if current_hour != first_timestamp:
+                if last_energy is not None and report.timestamp.hour != current_hour_start:
+                    # Зберігаємо енергію для попередньої години
+                    hourly_energy.append(current_hour_energy)
+                    hourly_timestamps.append(current_hour_start)
 
-        # Зменшення розміру полів
-        self.figure.tight_layout(pad=1.0, h_pad=0.5, w_pad=0.5)
+                    # Оновлюємо для нової години
+                    current_hour_energy = 0.0
 
-        # Малювання графіків
-        self.canvas.draw()
+            # Якщо дані про енергію існують, додаємо їх
+            if last_energy is not None:
+                current_hour_energy += abs(report.total_active_energy - last_energy.total_active_energy)
+
+            last_energy = report
+            current_hour_start = current_hour
+
+        # Додаємо останню годину
+        if last_energy is not None:
+            hourly_energy.append(current_hour_energy)
+            hourly_timestamps.append(current_hour_start)
+
+        # Відображення на графіку
+        self.plot_energy(hourly_timestamps, hourly_energy)
 
     def open_date_range_dialog(self):
         """Відкриває діалог для вибору діапазону дат."""
@@ -292,3 +365,15 @@ class DeviceDetailsWidget(QWidget):
         end_date = self.end_calendar.selectedDate().toPyDate()
         self.plot_graphs(start_date=start_date, end_date=end_date)
         dialog.accept()
+
+    def set_light_theme(self):
+        # Встановлюємо світлу тему для графіків
+        # self.graph_widget.setBackground('w')  # Білий фон
+        self.voltage_graph_widget.setBackground('w')  # Білий фон для графіку напруги
+        self.current_graph_widget.setBackground('w')  # Білий фон для графіку струму
+        self.energy_graph_widget.setBackground('w')  # Білий фон для графіку енергії
+
+        # Змінюємо кольори для ліній графіків
+        self.voltage_graph_widget.plot([], pen=pg.mkPen(color='b', width=2))  # Синя лінія для напруги
+        self.current_graph_widget.plot([], pen=pg.mkPen(color='r', width=2))  # Червона лінія для струму
+        self.energy_graph_widget.plot([], pen=pg.mkPen(color='g', width=2))  # Зелена лінія для енергії

@@ -28,7 +28,7 @@ class MainWindow(QMainWindow):
         self.isAdmin = False
 
         self.setWindowTitle("EON EMS (SDM120 edition)")
-        self.setGeometry(100, 100, 800, 600)
+        self.setGeometry(100, 100, 1200, 800)
         self.setMinimumWidth(800)
         self.setMinimumHeight(600)
 
@@ -88,9 +88,6 @@ class MainWindow(QMainWindow):
         self.stacked_widget.setCurrentIndex(3)
 
     def go_back(self):
-        self.setGeometry(100, 100, 800, 600)
-        self.setMinimumWidth(800)
-        self.setMinimumHeight(600)
         current_index = self.stacked_widget.currentIndex()
 
         if current_index > 0:
@@ -109,8 +106,3 @@ class MainWindow(QMainWindow):
             self.stacked_widget.addWidget(self.registration_widget)
 
             self.stacked_widget.setCurrentIndex(0)
-
-    def set_big_window(self):
-        self.setGeometry(100, 100, 1200, 800)
-        self.setMinimumWidth(1200)
-        self.setMinimumHeight(800)

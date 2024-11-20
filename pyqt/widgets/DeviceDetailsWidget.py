@@ -17,7 +17,6 @@ class DeviceDetailsWidget(QWidget):
         self.device = device
         self.db_session = main_window.db_session
         self.main_window = main_window
-        self.main_window.set_big_window()
 
         layout = QVBoxLayout(self)
 
@@ -33,15 +32,20 @@ class DeviceDetailsWidget(QWidget):
         self.label = QLabel(f"Ім'я пристрою: {device.name} | Модель пристрою: {device.model}")
         table_layout.addWidget(self.label)
 
+        button_layout = QHBoxLayout()
+
         refresh_button = QPushButton()
         refresh_button.setIcon(QIcon("pyqt/icons/refresh.png"))
         refresh_button.setFixedSize(36, 36)
         refresh_button.clicked.connect(self.load_report_data)
-        table_layout.addWidget(refresh_button)
+        button_layout.addWidget(refresh_button)
 
         export_button = QPushButton("Експорт в Excel")
+        export_button.setFixedHeight(36)
         export_button.clicked.connect(self.open_export_dialog)
-        table_layout.addWidget(export_button)
+        button_layout.addWidget(export_button)
+
+        table_layout.addLayout(button_layout)
 
         self.report_table = QTableView(self)
         table_layout.addWidget(self.report_table)
@@ -114,7 +118,7 @@ class DeviceDetailsWidget(QWidget):
         total = sum(ratios)
         sizes = [int(ratio / total * splitter.size().width()) for ratio in ratios]
         splitter.setSizes(sizes)
-        splitter.handle(1).setEnabled(False)  # Забороняємо рух ручки
+        splitter.handle(1).setEnabled(False)
 
     def update_indicators(self):
         if self.device.model == "SDM120":
@@ -233,9 +237,16 @@ class DeviceDetailsWidget(QWidget):
         self.energy_graph_widget.setYRange(0, max(hourly_energy))
         self.energy_graph_widget.setLabel('bottom', 'Час', units='s')
 
-    def plot_graphs(self):
-        report_data = self.db_session.query(SDM120Report).filter_by(device_id=self.device.id).order_by(
-            desc(SDM120Report.timestamp)).all()
+    def plot_graphs(self, start_date=None, end_date=None):
+        # Якщо дати не вказані, використовуємо повний діапазон
+        query = self.db_session.query(SDM120Report).filter_by(device_id=self.device.id)
+        if start_date and end_date:
+            query = query.filter(SDM120Report.timestamp >= start_date, SDM120Report.timestamp <= end_date)
+        report_data = query.order_by(desc(SDM120Report.timestamp)).all()
+
+        if not report_data:
+            QMessageBox.warning(self, "Попередження", "Дані відсутні для заданого періоду.")
+            return
 
         timestamps = []
         voltages = []
@@ -251,29 +262,31 @@ class DeviceDetailsWidget(QWidget):
         self.plot_voltage(timestamps, voltages)
         self.plot_current(timestamps, currents)
 
+        # Підрахунок годинної енергії
         hourly_energy = []
         hourly_timestamps = []
 
         last_energy = None
-        current_hour_start = 0
+        current_hour_start = None
         current_hour_energy = 0.0
-        first_timestamp = report_data[-1].timestamp.replace(minute=0, second=0, microsecond=0)
 
         for report in report_data:
             current_hour = report.timestamp.replace(minute=0, second=0, microsecond=0)
 
-            if current_hour != first_timestamp:
-                if last_energy is not None and report.timestamp.hour != current_hour_start:
+            if current_hour_start is None:
+                current_hour_start = current_hour
+
+            if current_hour != current_hour_start:
+                if last_energy is not None:
                     hourly_energy.append(current_hour_energy)
                     hourly_timestamps.append(current_hour_start)
-
-                    current_hour_energy = 0.0
+                current_hour_start = current_hour
+                current_hour_energy = 0.0
 
             if last_energy is not None:
                 current_hour_energy += abs(report.total_active_energy - last_energy.total_active_energy)
 
             last_energy = report
-            current_hour_start = current_hour
 
         if last_energy is not None:
             hourly_energy.append(current_hour_energy)
@@ -288,25 +301,33 @@ class DeviceDetailsWidget(QWidget):
 
         layout = QVBoxLayout(dialog)
 
-        self.start_calendar = QCalendarWidget()
-        self.start_calendar.setGridVisible(True)
+        start_calendar = QCalendarWidget()
+        start_calendar.setGridVisible(True)
         layout.addWidget(QLabel("Початкова дата:"))
-        layout.addWidget(self.start_calendar)
+        layout.addWidget(start_calendar)
 
-        self.end_calendar = QCalendarWidget()
-        self.end_calendar.setGridVisible(True)
+        end_calendar = QCalendarWidget()
+        end_calendar.setGridVisible(True)
         layout.addWidget(QLabel("Кінцева дата:"))
-        layout.addWidget(self.end_calendar)
+        layout.addWidget(end_calendar)
 
         button_layout = QHBoxLayout()
         confirm_button = QPushButton("Підтвердити")
-        confirm_button.clicked.connect(lambda: self.apply_date_range(dialog))
         cancel_button = QPushButton("Скасувати")
-        cancel_button.clicked.connect(dialog.reject)
         button_layout.addWidget(confirm_button)
         button_layout.addWidget(cancel_button)
 
         layout.addLayout(button_layout)
+
+        def apply_date_range():
+            start_date = start_calendar.selectedDate().startOfDay().toPyDateTime()
+            end_date = end_calendar.selectedDate().endOfDay().toPyDateTime()
+            self.plot_graphs(start_date=start_date, end_date=end_date)
+            dialog.accept()
+
+        confirm_button.clicked.connect(apply_date_range)
+        cancel_button.clicked.connect(dialog.reject)
+
         dialog.exec_()
 
     def apply_date_range(self, dialog):

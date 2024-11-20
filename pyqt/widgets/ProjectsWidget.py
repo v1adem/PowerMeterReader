@@ -1,9 +1,10 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QListView, QPushButton, QMessageBox, QInputDialog, QComboBox, QHBoxLayout, QDialog,
-    QDialogButtonBox, QSpinBox, QLineEdit
+    QDialogButtonBox, QSpinBox, QLineEdit, QSizePolicy
 )
 from PyQt5.QtGui import QStandardItemModel, QStandardItem, QIcon
 from PyQt5.QtCore import Qt, QSize
+from openpyxl.styles import Alignment
 
 from models.Project import Project
 
@@ -44,40 +45,56 @@ class ProjectsWidget(QWidget):
         self.projects_model.clear()
         projects = self.db_session.query(Project).all()
 
-        for project in projects:
+        for index, project in enumerate(projects, start=1):
             item = QStandardItem()
             item.setData(project.name, Qt.UserRole)
-            item.setSizeHint(QSize(0, 50))
+            cell_height = 60
+            item.setSizeHint(QSize(0, cell_height))
             self.projects_model.appendRow(item)
 
             item_widget = QWidget()
             item_layout = QHBoxLayout(item_widget)
 
-            item_layout.addWidget(QLabel(project.name))
+            item_widget.setStyleSheet("border: 1px solid #cccccc;")
+
+            # Порядковий номер
+            number_label = QLabel(f"{index}")  # Номер по порядку
+            number_label.setStyleSheet("font-size: 14px; color: #666666; border: 0px solid #cccccc;")
+            number_label.setFixedWidth(40)  # Ширина для номера
+            number_label.setAlignment(Qt.AlignCenter)
+            item_layout.addWidget(number_label)
+
+            name_label = QLabel(project.name)
+            name_label.setStyleSheet("font-size: 14px; border: 0px solid #cccccc;")
+            item_layout.addWidget(name_label)
 
             port_combo = QComboBox()
             port_combo.addItems([str(i) for i in range(1, 256)])
             port_combo.setCurrentText(str(project.port))
-            port_combo.setFixedWidth(60)
+            port_combo.setFixedWidth(48)
+            port_combo.setStyleSheet("font-size: 14px; border: 0px solid #cccccc;")
             port_combo.currentIndexChanged.connect(
                 lambda _, p=project, combo=port_combo: self.change_project_port(p, combo.currentText())
             )
 
-            # Індикатор стану з'єднання
             connection_label = QLabel()
             self.update_connection_status(project, connection_label)
+            connection_label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)  # Мінімальна ширина
+            connection_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # Вирівнювання ліворуч і по центру вертикалі
             item_layout.addWidget(connection_label)
 
-            # Кнопка редагування
             edit_button = QPushButton()
             edit_button.setIcon(QIcon("pyqt/icons/edit.png"))
+            edit_button.setStyleSheet("margin: 0px;")
             edit_button.setFixedSize(24, 24)
+            edit_button.setIconSize(QSize(22, 22))  # Скейлим іконку до розміру кнопки
             edit_button.clicked.connect(lambda _, p=project: self.edit_project(p))
 
-            # Кнопка видалення
             delete_button = QPushButton()
             delete_button.setIcon(QIcon("pyqt/icons/delete.png"))
             delete_button.setFixedSize(24, 24)
+            delete_button.setStyleSheet("margin: 0px;")
+            delete_button.setIconSize(QSize(22, 22))  # Скейлим іконку до розміру кнопки
             delete_button.clicked.connect(lambda _, p=project: self.delete_project(p))
 
             if self.isAdmin:
@@ -85,16 +102,17 @@ class ProjectsWidget(QWidget):
                 item_layout.addWidget(edit_button)
                 item_layout.addWidget(delete_button)
 
-            item_layout.setContentsMargins(0, 0, 0, 0)
+            item_layout.setContentsMargins(10, 5, 10, 5)
+            item_layout.setSpacing(10)
             self.projects_list.setIndexWidget(item.index(), item_widget)
 
     def update_connection_status(self, project, label):
         if self.is_connected(project.port):
-            label.setText("✅ З'єднання успішне")
-            label.setStyleSheet("color: green;")
+            label.setText("✅ З'єднання успішне | Порт:")
+            label.setStyleSheet("color: green; font-size: 14px; alignment: right; margin: 0px; padding: 0px; border: 0px solid #cccccc;")
         else:
-            label.setText("❌ Немає з'єднання")
-            label.setStyleSheet("color: red;")
+            label.setText("❌ Немає з'єднання | Порт:")
+            label.setStyleSheet("color: red; font-size: 14px; alignment: right; margin: 0px; padding: 0px; border: 0px solid #cccccc;")
 
     def change_project_port(self, project, new_port):
         project.port = int(new_port)

@@ -39,33 +39,41 @@ class ProjectViewWidget(QWidget):
         self.devices_model.clear()
         devices = self.db_session.query(Device).filter_by(project_id=self.project.id).all()
 
-        for device in devices:
+        for index, device in enumerate(devices, start=1):
             item = QStandardItem()
             item.setData(device.name, Qt.UserRole)
-            item.setSizeHint(QSize(0, 36))
+            item.setSizeHint(QSize(0, 60))
             self.devices_model.appendRow(item)
 
             item_widget = QWidget()
             item_layout = QHBoxLayout(item_widget)
 
+            # Порядковий номер
+            number_label = QLabel(f"{index}")  # Номер по порядку
+            number_label.setStyleSheet("font-size: 14px; color: #666666;")
+            number_label.setFixedWidth(40)  # Ширина для номера
+            number_label.setAlignment(Qt.AlignCenter)
+            item_layout.addWidget(number_label)
+
             name_label = QLabel(device.name)
+            name_label.setStyleSheet("font-size: 18px;")
             item_layout.addWidget(name_label)
 
-            toggle_status_button = QPushButton("Зчитувати" if not device.get_reading_status() else "Не зчитувати")
-            toggle_status_button.setFixedSize(100, 24)
+            toggle_status_button = QPushButton("Ввімкнути" if not device.get_reading_status() else "Вимкнути")
+            toggle_status_button.setFixedSize(100, 36)
             toggle_status_button.clicked.connect(
                 lambda _, d=device, btn=toggle_status_button: self.toggle_device_status(d, btn))
             item_layout.addWidget(toggle_status_button)
 
             edit_button = QPushButton()
             edit_button.setIcon(QIcon("pyqt/icons/edit.png"))
-            edit_button.setFixedSize(24, 24)
+            edit_button.setFixedSize(36, 36)
             edit_button.clicked.connect(lambda _, d=device: self.edit_device(d))
             item_layout.addWidget(edit_button)
 
             delete_button = QPushButton()
             delete_button.setIcon(QIcon("pyqt/icons/delete.png"))
-            delete_button.setFixedSize(24, 24)
+            delete_button.setFixedSize(36, 36)
             delete_button.clicked.connect(lambda _, d=device: self.delete_device(d))
             item_layout.addWidget(delete_button)
 
@@ -77,7 +85,7 @@ class ProjectViewWidget(QWidget):
         try:
             device.toggle_reading_status()
             self.db_session.commit()
-            button.setText("Зчитувати" if not device.get_reading_status() else "Не зчитувати")
+            button.setText("Ввімкнути" if not device.get_reading_status() else "Вимкнути")
         except Exception as e:
             QMessageBox.critical(self, "Помилка", f"Не вдалося змінити статус пристрою: {e}")
 

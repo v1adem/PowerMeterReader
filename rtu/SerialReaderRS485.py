@@ -44,7 +44,6 @@ def decode_32bit_float(data):
     return decoded_data
 
 
-
 class SerialReaderRS485:
     def __init__(self,
                  device_custom_name,
@@ -110,4 +109,6 @@ class SerialReaderRS485:
             value = self.read_property(property_name)
             if value is not None:
                 result[property_name] = value
+            else:
+                result[property_name] = 0
         return result

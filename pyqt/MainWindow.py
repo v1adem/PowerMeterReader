@@ -4,9 +4,10 @@ from PyQt5.QtWidgets import QMainWindow, QWidget, QVBoxLayout, \
 from PyQt5.QtCore import QTimer
 
 from models.Admin import Admin
+from models.Project import Project
 from pyqt.dialogs.ConnectionDialog import ConnectionDialog
 from pyqt.dialogs.LanguageDialog import LanguageDialog
-from pyqt.widgets.DeviceDetailsWidget import DeviceDetailsWidget
+from pyqt.widgets.DeviceDetailsSDM120Widget import DeviceDetailsSDM120Widget
 from pyqt.widgets.ProjectViewWidget import ProjectViewWidget
 from pyqt.widgets.ProjectsWidget import ProjectsWidget
 from pyqt.widgets.RegistrationLoginForm import RegistrationLoginForm
@@ -17,12 +18,22 @@ class MainWindow(QMainWindow):
     def __init__(self, db_session):
         super().__init__()
 
-        self.data_collector = DataCollector(db_session)
+        self.db_session = db_session
+        self.data_collectors = []
+        self.timers = []
 
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.data_collector.collect_data)
-        self.timer.setInterval(60000)
-        # self.timer.start()
+        projects = self.db_session.query(Project).all()
+
+        for project in projects:
+            data_collector = DataCollector(db_session, project)
+            self.data_collectors.append(data_collector)
+
+            timer = QTimer(self)
+            timer.timeout.connect(data_collector.collect_data)
+            timer.setInterval(3000)
+            timer.start()
+
+            self.timers.append(timer)
 
         self.db_session = db_session
         self.isAdmin = False
@@ -49,8 +60,6 @@ class MainWindow(QMainWindow):
         self.stacked_widget = QStackedWidget(self.central_widget)
         self.central_layout = QVBoxLayout(self.central_widget)
         self.central_layout.addWidget(self.stacked_widget)
-
-        admin = self.db_session.query(Admin).first()
 
         self.registration_widget = RegistrationLoginForm(self)
         self.stacked_widget.addWidget(self.registration_widget)
@@ -83,9 +92,13 @@ class MainWindow(QMainWindow):
         self.stacked_widget.setCurrentIndex(2)
 
     def open_device_details(self, device):
-        device_details_widget = DeviceDetailsWidget(self, device)
-        self.stacked_widget.addWidget(device_details_widget)
-        self.stacked_widget.setCurrentIndex(3)
+        if device.model == "SDM120":
+            device_details_widget = DeviceDetailsSDM120Widget(self, device)
+            self.stacked_widget.addWidget(device_details_widget)
+            self.stacked_widget.setCurrentIndex(3)
+        elif device.model == "SDM630":
+            pass
+
 
     def go_back(self):
         current_index = self.stacked_widget.currentIndex()

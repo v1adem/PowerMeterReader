@@ -29,6 +29,12 @@
     "format": "float",
     "units": "VAr"
   },
+  "power_factor": {
+    "register": 30,
+    "type": "input",
+    "format": "float",
+    "units": ""
+  },
   "frequency": {
     "register": 70,
     "type": "input",

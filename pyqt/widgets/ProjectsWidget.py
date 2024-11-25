@@ -101,6 +101,10 @@ class ProjectsWidget(QWidget):
                 item_layout.addWidget(port_combo)
                 item_layout.addWidget(edit_button)
                 item_layout.addWidget(delete_button)
+            else:
+                port_label = QLabel(f"{project.port}")
+                port_label.setStyleSheet("font-size: 14px; border: 0px solid #cccccc; margin: 0px;")
+                item_layout.addWidget(port_label)
 
             item_layout.setContentsMargins(10, 5, 10, 5)
             item_layout.setSpacing(10)

@@ -60,6 +60,7 @@ class DataCollector(QObject):
                 "device_id": device.id,
                 "voltage": new_data.get("voltage"),
                 "current": new_data.get("current"),
+                "active_power": new_data.get("active_power"),
                 "total_active_energy": new_data.get("total_active_energy"),
             }
 

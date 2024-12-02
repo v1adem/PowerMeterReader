@@ -40,6 +40,7 @@ class SDM120ReportTmp(Base):
     timestamp = Column(DateTime, nullable=False, default=lambda: datetime.now(get_localzone()), primary_key=True)
     voltage = Column(Float, nullable=True)
     current = Column(Float, nullable=True)
+    active_power = Column(Float, nullable=True)
     total_active_energy = Column(Float, nullable=True)
 
     device = relationship("Device")

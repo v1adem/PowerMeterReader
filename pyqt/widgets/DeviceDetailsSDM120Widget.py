@@ -3,9 +3,9 @@ from datetime import datetime
 import pyqtgraph as pg
 import xlsxwriter
 
-from PyQt5 import QtWidgets
 from PyQt5.QtWidgets import QVBoxLayout, QPushButton, QLabel, QWidget, QSplitter, QTableView, QCalendarWidget, \
-    QHBoxLayout, QDialog, QLCDNumber, QCheckBox, QDateEdit, QGridLayout, QInputDialog
+    QHBoxLayout, QDialog, QLCDNumber, QCheckBox, QDateEdit, QGridLayout, QInputDialog, QFormLayout, QLineEdit, \
+    QDialogButtonBox
 from PyQt5.QtGui import QIcon, QStandardItemModel, QStandardItem, QFont
 from PyQt5.QtCore import Qt, QSortFilterProxyModel, QTime, QTimer, QDate
 from PyQt5.QtWidgets import QMessageBox, QFileDialog
@@ -15,19 +15,76 @@ from sqlalchemy import desc
 from models.Report import SDM120Report, SDM630Report, SDM120ReportTmp
 
 
+class FilterDialog(QDialog):
+    def __init__(self, columns, device, db_session):
+        super().__init__()
+        self.setWindowTitle("Фільтри таблиці")
+        self.device = device
+        self.db_session = db_session
+
+        self.filters = {}  # Зберігаємо фільтри
+
+        layout = QVBoxLayout(self)
+
+        form_layout = QFormLayout()
+
+        # Створюємо комбіновані фільтри для кожного стовпця
+        for column in columns:
+            label = QLabel(f"Фільтр для {column}")
+            filter_input = QLineEdit(self)
+            form_layout.addRow(label, filter_input)
+            self.filters[column] = filter_input  # Додаємо фільтр до словника
+
+        layout.addLayout(form_layout)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+    def get_filters(self):
+        # Повертає фільтри, застосовані користувачем
+        return {column: filter_input.text() for column, filter_input in self.filters.items()}
+
+    def apply_filters(self, report_data, columns):
+        # Застосовуємо фільтри до даних
+        filters = self.get_filters()
+        filtered_data = []
+        for report in report_data:
+            match = True
+            for column, filter_value in filters.items():
+                if filter_value:  # Якщо фільтр не порожній
+                    column_value = getattr(report, column)
+                    if isinstance(column_value, str) and filter_value.lower() not in str(column_value).lower():
+                        match = False
+                        break
+                    elif isinstance(column_value, (int, float)) and column_value != float(filter_value):
+                        match = False
+                        break
+            if match:
+                filtered_data.append(report)
+
+        return filtered_data
+
 class DateAxisItem(AxisItem):
     def tickStrings(self, values, scale, spacing):
         formatted_ticks = []
         for value in values:
-            dt = datetime.fromtimestamp(value)
+            try:
+                if value < 0 or value > 32503680000:  # 1 січня 3000 року
+                    formatted_ticks.append("")
+                    continue
 
-            if spacing < 3600:
-                formatted_ticks.append(dt.strftime('%H:%M:%S'))
-            elif spacing < 86400:
-                formatted_ticks.append(dt.strftime('%d %B %H:%M'))
-            else:
-                formatted_ticks.append(dt.strftime('%d %B'))
+                dt = datetime.fromtimestamp(value)
 
+                if spacing < 3600:
+                    formatted_ticks.append(dt.strftime('%H:%M:%S'))
+                elif spacing < 86400:
+                    formatted_ticks.append(dt.strftime('%d %B %H:%M'))
+                else:
+                    formatted_ticks.append(dt.strftime('%d %B'))
+            except Exception as e:
+                formatted_ticks.append("")
         return formatted_ticks
 
 
@@ -53,6 +110,30 @@ class DeviceDetailsSDM120Widget(QWidget):
         table_layout.addWidget(self.label)
 
         button_layout = QHBoxLayout()
+
+        # Додавання кнопок фільтрування
+        filter_layout = QHBoxLayout()
+
+        self.start_date_edit = QDateEdit(self)
+        self.start_date_edit.setCalendarPopup(True)
+        self.start_date_edit.setDate(QDate.currentDate().addYears(-1))
+        filter_layout.addWidget(QLabel("Від:"))
+        filter_layout.addWidget(self.start_date_edit)
+
+        self.end_date_edit = QDateEdit(self)
+        self.end_date_edit.setCalendarPopup(True)
+        self.end_date_edit.setDate(QDate.currentDate())
+        filter_layout.addWidget(QLabel("До:"))
+        filter_layout.addWidget(self.end_date_edit)
+
+        self.start_date = None
+        self.end_date = None
+
+        filter_button = QPushButton("Застосувати фільтр")
+        filter_button.clicked.connect(self.apply_date_filter)
+        filter_layout.addWidget(filter_button)
+
+        table_layout.addLayout(filter_layout)
 
         refresh_button = QPushButton()
         refresh_button.setIcon(QIcon("pyqt/icons/refresh.png"))
@@ -87,18 +168,31 @@ class DeviceDetailsSDM120Widget(QWidget):
         self.current_graph_widget = pg.PlotWidget()
         self.energy_graph_widget = pg.PlotWidget()
 
+        self.voltage_graph_widget.setAxisItems({'bottom': DateAxisItem(orientation='bottom')})
+        self.current_graph_widget.setAxisItems({'bottom': DateAxisItem(orientation='bottom')})
+        self.energy_graph_widget.setAxisItems({'bottom': DateAxisItem(orientation='bottom')})
+
         self.voltage_curve = self.voltage_graph_widget.plot(pen=pg.mkPen(color='b', width=2), name="Напруга")
         self.current_curve = self.current_graph_widget.plot(pen=pg.mkPen(color='r', width=2), name="Струм")
 
         self.energy_bar_item = pg.BarGraphItem(width=5, height=5, brush='g', x=1)
         self.energy_graph_widget.addItem(self.energy_bar_item)
 
+        # Для графіка напруги
+        self.voltage_graph_widget.setLabel('left', 'Напруга', units='В')
+
+        # Для графіка струму
+        self.current_graph_widget.setLabel('left', 'Струм', units='А')
+
+        # Для графіка споживання
+        self.energy_graph_widget.setLabel('left', 'Споживання', units='кВт·год')
+
         top_right_layout.addWidget(self.voltage_graph_widget)
         top_right_layout.addWidget(self.current_graph_widget)
         top_right_layout.addWidget(self.energy_graph_widget)
 
         self.auto_update_checkbox = QCheckBox("Автооновлення")
-        self.auto_update_checkbox.setChecked(False)  # За замовчуванням увімкнено
+        self.auto_update_checkbox.setChecked(True)  # За замовчуванням увімкнено
         top_right_layout.addWidget(self.auto_update_checkbox)
 
         right_splitter.addWidget(top_right_widget)
@@ -171,7 +265,7 @@ class DeviceDetailsSDM120Widget(QWidget):
         self.timer.start()
 
         self.load_report_data()
-        self.plot_graphs()
+        self.update_graphs(self.start_date, self.end_date)
         self.set_light_theme()
 
     def set_splitter_fixed_ratios(self, splitter, ratios):
@@ -184,7 +278,7 @@ class DeviceDetailsSDM120Widget(QWidget):
         self.update_clock()
         self.update_indicators()
         if self.auto_update_checkbox.isChecked():
-            self.plot_graphs()
+            self.update_graphs(self.start_date, self.end_date)
 
     def update_indicators(self):
         last_report = (self.db_session.query(SDM120ReportTmp)
@@ -250,12 +344,17 @@ class DeviceDetailsSDM120Widget(QWidget):
         return model
 
     def load_report_data(self):
+        start_date = self.start_date_edit.date().toPyDate()
+        end_date = self.end_date_edit.date().toPyDate()
+
         if self.device.model == "SDM120":
-            report_data = self.db_session.query(SDM120Report).filter_by(device_id=self.device.id).order_by(
-                desc(SDM120Report.timestamp)).all()
+            report_data = self.db_session.query(SDM120Report).filter_by(device_id=self.device.id).filter(
+                SDM120Report.timestamp >= start_date, SDM120Report.timestamp <= end_date
+            ).order_by(desc(SDM120Report.timestamp)).all()
         elif self.device.model == "SDM630":
-            report_data = self.db_session.query(SDM630Report).filter_by(device_id=self.device.id).order_by(
-                desc(SDM630Report.timestamp)).all()
+            report_data = self.db_session.query(SDM630Report).filter_by(device_id=self.device.id).filter(
+                SDM630Report.timestamp >= start_date, SDM630Report.timestamp <= end_date
+            ).order_by(desc(SDM630Report.timestamp)).all()
         else:
             report_data = []
 
@@ -266,72 +365,91 @@ class DeviceDetailsSDM120Widget(QWidget):
         proxy_model.setSortCaseSensitivity(Qt.CaseInsensitive)
 
         self.report_table.setModel(proxy_model)
-
         self.report_table.sortByColumn(3, Qt.DescendingOrder)
-
         self.report_table.setSortingEnabled(True)
         self.report_table.resizeColumnsToContents()
 
-        header = self.report_table.horizontalHeader()
-        header.setSectionResizeMode(QtWidgets.QHeaderView.Fixed)
+    def apply_date_filter(self):
+        self.load_report_data()  # Перезавантажуємо дані після застосування фільтру
 
-        self.update_indicators()
-
-    def plot_voltage(self, timestamps, voltages):
+    def update_voltage_graph(self, timestamps, voltages):
         timestamps_numeric = [ts.timestamp() for ts in timestamps]
 
-        self.voltage_graph_widget.clear()
-        self.voltage_graph_widget.setAxisItems({'bottom': DateAxisItem(orientation='bottom')})
+        if not hasattr(self, 'voltage_plot_item'):
+            self.voltage_plot_item = self.voltage_graph_widget.plot(
+                timestamps_numeric,
+                voltages,
+                pen=pg.mkPen(color='b', width=2),
+                name="Напруга"
+            )
+        else:
+            self.voltage_plot_item.setData(timestamps_numeric, voltages)
 
-        self.voltage_graph_widget.plot(
-            timestamps_numeric,
-            voltages,
-            pen=pg.mkPen(color='b', width=2),
-            name="Напруга"
-        )
-        self.voltage_graph_widget.setYRange(0, 400)
-
-    def plot_current(self, timestamps, currents):
+    def update_current_graph(self, timestamps, currents):
         timestamps_numeric = [ts.timestamp() for ts in timestamps]
 
-        self.current_graph_widget.clear()
-        self.current_graph_widget.setAxisItems({'bottom': DateAxisItem(orientation='bottom')})
+        if not hasattr(self, 'current_plot_item'):
+            self.current_plot_item = self.current_graph_widget.plot(
+                timestamps_numeric,
+                currents,
+                pen=pg.mkPen(color='r', width=2),
+                name="Струм"
+            )
+        else:
+            self.current_plot_item.setData(timestamps_numeric, currents)
 
-        self.current_graph_widget.plot(
-            timestamps_numeric,
-            currents,
-            pen=pg.mkPen(color='r', width=2),
-            name="Струм"
-        )
-        self.current_graph_widget.setYRange(0, 200)
+    def update_energy_graph(self, hourly_timestamps, hourly_energy):
+        if len(hourly_timestamps) == 0 or len(hourly_energy) == 0:
+            return  # Якщо немає даних, просто не оновлюємо графік
 
-    def plot_energy(self, hourly_timestamps, hourly_energy):
+        # Перетворення на числові значення для часу
         hourly_timestamps_numeric = [ts.timestamp() for ts in hourly_timestamps]
 
-        bar_x = []
-        bar_heights = []
+        # Фільтруємо дані, якщо вони виходять за межі реального діапазону
+        valid_data = [(ts, energy) for ts, energy in zip(hourly_timestamps_numeric, hourly_energy) if energy > 0]
 
-        for i in range(len(hourly_timestamps_numeric)):
-            start_time = hourly_timestamps_numeric[i]
-            end_time = hourly_timestamps_numeric[i] + 3600  # 3600 секунд = 1 година
+        if len(valid_data) == 0:
+            return  # Якщо немає даних з ненульовими значеннями енергії, не оновлюємо графік
 
-            bar_x.append((start_time, end_time))
-            bar_heights.append(hourly_energy[i])
+        # Ініціалізація графіка, якщо він ще не створений
+        if not hasattr(self, 'energy_bar_items'):
+            self.energy_bar_items = []
+            for i, (ts, energy) in enumerate(valid_data):
+                start_time = ts
+                end_time = start_time + 3600  # Один стовпчик триває 1 годину
+                height = energy
 
-        self.energy_graph_widget.clear()
-        self.energy_graph_widget.setAxisItems({'bottom': DateAxisItem(orientation='bottom')})
+                bar_item = pg.BarGraphItem(
+                    x0=start_time,
+                    x1=end_time,
+                    height=height,
+                    brush='g'
+                )
+                self.energy_bar_items.append(bar_item)
+                self.energy_graph_widget.addItem(bar_item)
 
-        bar_item = pg.BarGraphItem(
-            x=[x[0] for x in bar_x],
-            height=bar_heights,
-            width=1800,
-            brush='g'
-        )
+        # Оновлення стовпців на графіку
+        for i, (bar_item, (ts, energy)) in enumerate(zip(self.energy_bar_items, valid_data)):
+            start_time = ts
+            end_time = start_time + 3600
+            bar_item.setOpts(x0=start_time, x1=end_time, y0=0, y1=energy)
 
-        self.energy_graph_widget.addItem(bar_item)
-        self.energy_graph_widget.setYRange(0, max(hourly_energy))
+        # Видалення зайвих стовпців, якщо їх стало менше
+        while len(self.energy_bar_items) > len(valid_data):
+            bar_item = self.energy_bar_items.pop()
+            self.energy_graph_widget.removeItem(bar_item)
 
-    def plot_graphs(self, start_date=None, end_date=None):
+        # Встановлення коректного діапазону для осі Y
+        y_max = max([energy for _, energy in
+                     valid_data]) if valid_data else 5  # Якщо енергія пуста, використовуємо дефолтне значення
+        self.energy_graph_widget.setYRange(0, y_max)
+
+        # Встановлення коректного діапазону для осі X на основі реальних даних
+        x_min = min([ts for ts, _ in valid_data])
+        x_max = max([ts for ts, _ in valid_data]) + 3600  # додамо годину для правої межі
+        self.energy_graph_widget.setXRange(x_min, x_max)
+
+    def update_graphs(self, start_date, end_date):
         query = self.db_session.query(SDM120Report).filter_by(device_id=self.device.id)
         if start_date and end_date:
             query = query.filter(SDM120Report.timestamp >= start_date, SDM120Report.timestamp <= end_date)
@@ -339,6 +457,8 @@ class DeviceDetailsSDM120Widget(QWidget):
 
         if not report_data:
             QMessageBox.warning(self, "Попередження", "Дані відсутні для заданого періоду.")
+            self.start_date = None
+            self.end_date = None
             return
 
         timestamps = []
@@ -352,8 +472,8 @@ class DeviceDetailsSDM120Widget(QWidget):
             currents.append(report.current)
             energies.append(report.total_active_energy)
 
-        self.plot_voltage(timestamps, voltages)
-        self.plot_current(timestamps, currents)
+        self.update_voltage_graph(timestamps, voltages)
+        self.update_current_graph(timestamps, currents)
 
         hourly_energy = []
         hourly_timestamps = []
@@ -384,7 +504,7 @@ class DeviceDetailsSDM120Widget(QWidget):
             hourly_energy.append(current_hour_energy)
             hourly_timestamps.append(current_hour_start)
 
-        self.plot_energy(hourly_timestamps, hourly_energy)
+        self.update_energy_graph(hourly_timestamps, hourly_energy)
 
     def open_date_range_dialog(self):
         dialog = QDialog(self)
@@ -412,9 +532,9 @@ class DeviceDetailsSDM120Widget(QWidget):
         layout.addLayout(button_layout)
 
         def apply_date_range():
-            start_date = start_calendar.selectedDate().startOfDay().toPyDateTime()
-            end_date = end_calendar.selectedDate().endOfDay().toPyDateTime()
-            self.plot_graphs(start_date=start_date, end_date=end_date)
+            self.start_date = start_calendar.selectedDate().startOfDay().toPyDateTime()
+            self.end_date = end_calendar.selectedDate().endOfDay().toPyDateTime()
+            self.update_graphs(start_date=self.start_date, end_date=self.end_date)
             dialog.accept()
 
         confirm_button.clicked.connect(apply_date_range)
@@ -425,7 +545,7 @@ class DeviceDetailsSDM120Widget(QWidget):
     def apply_date_range(self, dialog):
         start_date = self.start_calendar.selectedDate().toPyDate()
         end_date = self.end_calendar.selectedDate().toPyDate()
-        self.plot_graphs(start_date=start_date, end_date=end_date)
+        self.update_graphs(start_date=start_date, end_date=end_date)
         dialog.accept()
 
     def set_light_theme(self):
@@ -518,8 +638,8 @@ class DeviceDetailsSDM120Widget(QWidget):
 
             # Якщо користувач вибрав додавання графіків
             if self.include_charts:
-                parameters = ['voltage', 'current', 'active_power']
-                for param in parameters:
+                parameters = {'voltage':'Напруга', 'current':'Струм', 'active_power':'Потужність'}
+                for param in parameters.keys():
                     worksheet_param = workbook.add_worksheet(param)
 
                     worksheet_param.write('A1', 'Дата/Час')
@@ -531,11 +651,11 @@ class DeviceDetailsSDM120Widget(QWidget):
                         worksheet_param.write(row, 1, getattr(entry, param.lower()))
                         row += 1
 
-                    worksheet_param.add_table(f'A1:B{row}', {'name': f'{param}_data', 'columns': [{'header': 'Дата/Час'}, {'header': param}]})
+                    worksheet_param.add_table(f'A1:B{row}', {'name': f'{param}_data', 'columns': [{'header': 'Дата/Час'}, {'header': parameters[param]}],})
 
                     chart = workbook.add_chart({'type': 'line'})
-                    chart.add_series({'values': f'={param}!$B$2:$B${row}', 'name': param, 'categories': f'={param}!$A$2:$A${row-1}'})
-                    chart.set_title({'name': param})
+                    chart.add_series({'values': f'={param}!$B$2:$B${row}', 'name': parameters[param], 'categories': f'={param}!$A$2:$A${row-1}'})
+                    chart.set_title({'name': parameters[param]})
 
                     chart.set_x_axis({'date_axis': True, 'num_format': 'yyyy-mm-dd hh:mm:ss'})
 

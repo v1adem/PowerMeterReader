@@ -8,7 +8,6 @@ from PyQt5.QtWidgets import QVBoxLayout, QPushButton, QLabel, QWidget, QSplitter
     QHBoxLayout, QDialog, QLCDNumber, QCheckBox, QDateEdit, QGridLayout, QInputDialog
 from PyQt5.QtGui import QIcon, QStandardItemModel, QStandardItem, QFont
 from PyQt5.QtCore import Qt, QSortFilterProxyModel, QTime, QTimer, QDate
-import win32com.client as win32
 from PyQt5.QtWidgets import QMessageBox, QFileDialog
 from pyqtgraph import AxisItem
 
@@ -22,14 +21,11 @@ class DateAxisItem(AxisItem):
         for value in values:
             dt = datetime.fromtimestamp(value)
 
-            if spacing < 3600:  # Проміжки менше години
-                # Показуємо лише час із точністю до секунд
+            if spacing < 3600:
                 formatted_ticks.append(dt.strftime('%H:%M:%S'))
-            elif spacing < 86400:  # Проміжки від години до дня
-                # Показуємо дату та час (до хвилин)
+            elif spacing < 86400:
                 formatted_ticks.append(dt.strftime('%d %B %H:%M'))
-            else:  # Проміжки більше дня
-                # Показуємо тільки дату
+            else:
                 formatted_ticks.append(dt.strftime('%d %B'))
 
         return formatted_ticks
@@ -94,10 +90,7 @@ class DeviceDetailsSDM120Widget(QWidget):
         self.voltage_curve = self.voltage_graph_widget.plot(pen=pg.mkPen(color='b', width=2), name="Напруга")
         self.current_curve = self.current_graph_widget.plot(pen=pg.mkPen(color='r', width=2), name="Струм")
 
-        # Створення елемента для енергетичних стовпців (записуємо x, height і width для барів)
         self.energy_bar_item = pg.BarGraphItem(width=5, height=5, brush='g', x=1)
-
-        # Додаємо елемент на графік
         self.energy_graph_widget.addItem(self.energy_bar_item)
 
         top_right_layout.addWidget(self.voltage_graph_widget)
@@ -288,8 +281,6 @@ class DeviceDetailsSDM120Widget(QWidget):
         timestamps_numeric = [ts.timestamp() for ts in timestamps]
 
         self.voltage_graph_widget.clear()
-
-        # Використовуємо кастомну вісь із DateAxisItem
         self.voltage_graph_widget.setAxisItems({'bottom': DateAxisItem(orientation='bottom')})
 
         self.voltage_graph_widget.plot(
@@ -304,8 +295,6 @@ class DeviceDetailsSDM120Widget(QWidget):
         timestamps_numeric = [ts.timestamp() for ts in timestamps]
 
         self.current_graph_widget.clear()
-
-        # Використовуємо кастомну вісь із DateAxisItem
         self.current_graph_widget.setAxisItems({'bottom': DateAxisItem(orientation='bottom')})
 
         self.current_graph_widget.plot(
@@ -330,14 +319,12 @@ class DeviceDetailsSDM120Widget(QWidget):
             bar_heights.append(hourly_energy[i])
 
         self.energy_graph_widget.clear()
-
-        # Використовуємо кастомну вісь із DateAxisItem
         self.energy_graph_widget.setAxisItems({'bottom': DateAxisItem(orientation='bottom')})
 
         bar_item = pg.BarGraphItem(
             x=[x[0] for x in bar_x],
             height=bar_heights,
-            width=1800,  # Половина години для зручного масштабування
+            width=1800,
             brush='g'
         )
 
@@ -451,22 +438,20 @@ class DeviceDetailsSDM120Widget(QWidget):
         self.energy_graph_widget.plot([], pen=pg.mkPen(color='g', width=2))  # Зелена лінія для енергії
 
     def open_export_dialog(self):
-        # Створення діалогу
         self.dialog = QDialog(self)
         self.dialog.setWindowTitle("Експорт в Excel")
         self.dialog.setFixedSize(400, 150)
 
-        # Лейаут для діалогу
         layout = QVBoxLayout(self.dialog)
 
         # Вибір діапазону дат
         date_range_layout = QHBoxLayout()
         start_label = QLabel("Початок:")
-        self.start_date = QDateEdit(QDate.currentDate().addYears(-1))  # Початкова дата (1 рік тому)
-        self.start_date.setCalendarPopup(True)  # Календарний спливаючий вибір
+        self.start_date = QDateEdit(QDate.currentDate().addYears(-1))
+        self.start_date.setCalendarPopup(True)
         end_label = QLabel("Кінець:")
-        self.end_date = QDateEdit(QDate.currentDate())  # Кінцева дата (сьогодні)
-        self.end_date.setCalendarPopup(True)  # Календарний спливаючий вибір
+        self.end_date = QDateEdit(QDate.currentDate())
+        self.end_date.setCalendarPopup(True)
         date_range_layout.addWidget(start_label)
         date_range_layout.addWidget(self.start_date)
         date_range_layout.addWidget(end_label)
@@ -474,51 +459,45 @@ class DeviceDetailsSDM120Widget(QWidget):
 
         layout.addLayout(date_range_layout)
 
-        # Чекбокс для додавання графіків
         self.include_charts = QCheckBox("Додати графіки")
-        self.include_charts.setChecked(True)  # За замовчуванням графіки додаються
+        self.include_charts.setChecked(True)
         layout.addWidget(self.include_charts)
 
-        # Кнопка для експорту
         save_button = QPushButton("Зберегти в Excel")
         save_button.clicked.connect(self.export_to_excel)
         layout.addWidget(save_button)
 
-        # Встановлюємо лейаут і показуємо діалог
         self.dialog.setLayout(layout)
         self.dialog.exec()
 
     def export_to_excel(self):
-        # Отримуємо початкову та кінцеву дату
         start_datetime = self.start_date.dateTime().toPyDateTime()
         end_datetime = self.end_date.dateTime().toPyDateTime()
 
-        # Фільтруємо дані за діапазоном часу
         report_data = self.db_session.query(SDM120Report).filter(
             SDM120Report.device_id == self.device.id,
             SDM120Report.timestamp >= start_datetime,
             SDM120Report.timestamp <= end_datetime
         ).order_by(SDM120Report.timestamp).all()
 
-        # Перевірка, чи є дані для експорту
         if not report_data:
             QMessageBox.warning(self, "Експорт", "Дані за вибраний період відсутні.")
             return
 
-        # Запит на збереження шляху файлу
-        file_path, _ = QFileDialog.getSaveFileName(self, "Зберегти файл", f"{self.device.name}_{start_datetime.date()}_{end_datetime.date()}.xlsx", "Excel Files (*.xlsx)")
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Зберегти файл",
+            f"{self.device.name}_{start_datetime.date()}_{end_datetime.date()}.xlsx",
+            "Excel Files (*.xlsx)")
 
         if not file_path:
-            return  # Якщо користувач не вибрав файл для збереження
+            return
 
         try:
-            # Створюємо новий робочий зошит Excel
             workbook = xlsxwriter.Workbook(file_path)
 
-            # Додаємо лист "Дані"
             worksheet = workbook.add_worksheet('Дані')
 
-            # Додаємо заголовки
             worksheet.write('A1', 'Дата/Час')
             worksheet.write('B1', 'Напруга (V)')
             worksheet.write('C1', 'Струм (A)')
@@ -534,49 +513,39 @@ class DeviceDetailsSDM120Widget(QWidget):
 
                 row += 1
 
-            for col in range(4):  # Для перших 4 колонок на листі "Дані"
+            for col in range(4):
                 worksheet.set_column(col, col, 20)
 
             # Якщо користувач вибрав додавання графіків
             if self.include_charts:
-                # Створюємо окремі листи для кожного параметра (Напруга, Струм, Потужність)
                 parameters = ['voltage', 'current', 'active_power']
                 for param in parameters:
                     worksheet_param = workbook.add_worksheet(param)
 
-                    # Записуємо дані для кожного параметра
                     worksheet_param.write('A1', 'Дата/Час')
                     worksheet_param.write('B1', param)
 
                     row = 1
                     for entry in report_data:
-                        worksheet_param.write(row, 0, entry.timestamp.strftime('%Y-%m-%d %H:%M:%S'))  # Форматована дата/час
-                        worksheet_param.write(row, 1, getattr(entry, param.lower()))  # Вибір відповідного параметра
+                        worksheet_param.write(row, 0, entry.timestamp.strftime('%Y-%m-%d %H:%M:%S'))
+                        worksheet_param.write(row, 1, getattr(entry, param.lower()))
                         row += 1
 
-                    # Додаємо зведену таблицю для кожного параметра
                     worksheet_param.add_table(f'A1:B{row}', {'name': f'{param}_data', 'columns': [{'header': 'Дата/Час'}, {'header': param}]})
 
-                    # Додаємо графік
                     chart = workbook.add_chart({'type': 'line'})
                     chart.add_series({'values': f'={param}!$B$2:$B${row}', 'name': param, 'categories': f'={param}!$A$2:$A${row-1}'})
                     chart.set_title({'name': param})
 
-                    # Форматування осі X для відображення дати та часу
                     chart.set_x_axis({'date_axis': True, 'num_format': 'yyyy-mm-dd hh:mm:ss'})
 
                     worksheet_param.insert_chart('D2', chart)
 
-                    for col in range(4):  # Для перших 4 колонок на листі "Дані"
+                    for col in range(4):
                         worksheet.set_column(col, col, 20)
 
-            # Збереження файлу
             workbook.close()
-
-            # Повідомлення про успіх
             QMessageBox.information(self, "Експорт", "Експорт даних в Excel пройшов успішно.")
-
-            # Закриваємо діалог
             self.dialog.accept()
 
         except Exception as e:

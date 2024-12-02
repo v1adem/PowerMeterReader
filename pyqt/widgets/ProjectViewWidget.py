@@ -89,7 +89,6 @@ class ProjectViewWidget(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Помилка", f"Не вдалося змінити статус пристрою: {e}")
 
-
     def add_new_device(self):
         try:
             dialog = QDialog(self)

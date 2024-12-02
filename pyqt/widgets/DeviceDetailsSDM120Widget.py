@@ -1,20 +1,38 @@
-import pandas as pd
+from datetime import datetime
+
 import pyqtgraph as pg
+import xlsxwriter
 
 from PyQt5 import QtWidgets
 from PyQt5.QtWidgets import QVBoxLayout, QPushButton, QLabel, QWidget, QSplitter, QTableView, QCalendarWidget, \
-    QHBoxLayout, QDialog, QLCDNumber, QDateTimeEdit, QMessageBox, QFileDialog, QCheckBox, QLayout, QDateEdit
-from PyQt5.QtGui import QIcon, QStandardItemModel, QStandardItem
-from PyQt5.QtCore import Qt, QSortFilterProxyModel, QDateTime, QTime, QTimer, QDate
+    QHBoxLayout, QDialog, QLCDNumber, QCheckBox, QDateEdit, QGridLayout, QInputDialog
+from PyQt5.QtGui import QIcon, QStandardItemModel, QStandardItem, QFont
+from PyQt5.QtCore import Qt, QSortFilterProxyModel, QTime, QTimer, QDate
+import win32com.client as win32
+from PyQt5.QtWidgets import QMessageBox, QFileDialog
+from pyqtgraph import AxisItem
 
-from openpyxl import Workbook
-from openpyxl.styles import Font
-from openpyxl.chart import LineChart, Reference, BarChart
-
-from pyqtgraph import DateAxisItem
-
-from sqlalchemy import desc, column
+from sqlalchemy import desc
 from models.Report import SDM120Report, SDM630Report, SDM120ReportTmp
+
+
+class DateAxisItem(AxisItem):
+    def tickStrings(self, values, scale, spacing):
+        formatted_ticks = []
+        for value in values:
+            dt = datetime.fromtimestamp(value)
+
+            if spacing < 3600:  # Проміжки менше години
+                # Показуємо лише час із точністю до секунд
+                formatted_ticks.append(dt.strftime('%H:%M:%S'))
+            elif spacing < 86400:  # Проміжки від години до дня
+                # Показуємо дату та час (до хвилин)
+                formatted_ticks.append(dt.strftime('%d %B %H:%M'))
+            else:  # Проміжки більше дня
+                # Показуємо тільки дату
+                formatted_ticks.append(dt.strftime('%d %B'))
+
+        return formatted_ticks
 
 
 class DeviceDetailsSDM120Widget(QWidget):
@@ -73,56 +91,81 @@ class DeviceDetailsSDM120Widget(QWidget):
         self.current_graph_widget = pg.PlotWidget()
         self.energy_graph_widget = pg.PlotWidget()
 
+        self.voltage_curve = self.voltage_graph_widget.plot(pen=pg.mkPen(color='b', width=2), name="Напруга")
+        self.current_curve = self.current_graph_widget.plot(pen=pg.mkPen(color='r', width=2), name="Струм")
+
+        # Створення елемента для енергетичних стовпців (записуємо x, height і width для барів)
+        self.energy_bar_item = pg.BarGraphItem(width=5, height=5, brush='g', x=1)
+
+        # Додаємо елемент на графік
+        self.energy_graph_widget.addItem(self.energy_bar_item)
+
         top_right_layout.addWidget(self.voltage_graph_widget)
         top_right_layout.addWidget(self.current_graph_widget)
         top_right_layout.addWidget(self.energy_graph_widget)
 
+        self.auto_update_checkbox = QCheckBox("Автооновлення")
+        self.auto_update_checkbox.setChecked(False)  # За замовчуванням увімкнено
+        top_right_layout.addWidget(self.auto_update_checkbox)
+
         right_splitter.addWidget(top_right_widget)
 
         bottom_right_widget = QWidget()
-        bottom_right_layout = QVBoxLayout(bottom_right_widget)
+        self.bottom_right_layout = QHBoxLayout(bottom_right_widget)
+
+        # Ліва частина: Годинник
+        self.left_layout = QVBoxLayout()
+
+        # Заголовок "Поточний час"
+        self.clock_title = QLabel("Поточний час")
+        self.clock_title.setStyleSheet("font-size: 16pt; font-weight: bold;")
+        self.clock_title.setAlignment(Qt.AlignCenter)  # Вирівнювання тексту по центру
+        self.left_layout.addWidget(self.clock_title)
 
         # Годинник
         self.clock_label = QLabel()
-        self.clock_label.setStyleSheet("font-size: 24pt;")
-        bottom_right_layout.addWidget(self.clock_label)  # Додаємо годинник на верх
+        self.clock_label.setStyleSheet("font-size: 24pt;")  # Збільшений шрифт для годинника
+        self.clock_label.setAlignment(Qt.AlignCenter)  # Вирівнювання по центру
+        self.left_layout.addWidget(self.clock_label)
 
-        # Блок з індикаторами в горизонтальному порядку
-        indicators_layout = QHBoxLayout()
+        self.left_layout.addStretch()
+
+        # Права частина: Індикатори в сітці
+        self.grid_layout = QGridLayout()
 
         # Індикатори
         self.voltage_lcd = QLCDNumber()
         self.voltage_lcd.setSegmentStyle(QLCDNumber.Flat)
         self.current_lcd = QLCDNumber()
         self.current_lcd.setSegmentStyle(QLCDNumber.Flat)
+        self.power_lcd = QLCDNumber()
+        self.power_lcd.setSegmentStyle(QLCDNumber.Flat)
         self.energy_lcd = QLCDNumber()
         self.energy_lcd.setSegmentStyle(QLCDNumber.Flat)
 
-        voltage_label = QLabel("Напруга (V)")
-        voltage_label.setStyleSheet("font-size: 14pt; font-weight: bold;")
-        current_label = QLabel("Струм (A)")
-        current_label.setStyleSheet("font-size: 14pt; font-weight: bold;")
-        energy_label = QLabel("Енергія (kWh)")
-        energy_label.setStyleSheet("font-size: 14pt; font-weight: bold;")
+        # Підписи
+        self.voltage_label = QLabel("Напруга (V)")
+        self.voltage_label.setStyleSheet("font-size: 14pt; font-weight: bold;")
+        self.current_label = QLabel("Струм (A)")
+        self.current_label.setStyleSheet("font-size: 14pt; font-weight: bold;")
+        self.power_label = QLabel("Потужність (W)")
+        self.power_label.setStyleSheet("font-size: 14pt; font-weight: bold;")
+        self.energy_label = QLabel("Спожито (kWh)")
+        self.energy_label.setStyleSheet("font-size: 14pt; font-weight: bold;")
 
-        # Додаємо кожен індикатор у горизонтальний лейаут
-        voltage_layout = QVBoxLayout()
-        voltage_layout.addWidget(voltage_label)
-        voltage_layout.addWidget(self.voltage_lcd)
-        indicators_layout.addLayout(voltage_layout)
+        # Додавання до сітки
+        self.grid_layout.addWidget(self.voltage_label, 0, 0)
+        self.grid_layout.addWidget(self.voltage_lcd, 1, 0)
+        self.grid_layout.addWidget(self.current_label, 0, 1)
+        self.grid_layout.addWidget(self.current_lcd, 1, 1)
+        self.grid_layout.addWidget(self.power_label, 2, 0)
+        self.grid_layout.addWidget(self.power_lcd, 3, 0)
+        self.grid_layout.addWidget(self.energy_label, 2, 1)
+        self.grid_layout.addWidget(self.energy_lcd, 3, 1)
 
-        current_layout = QVBoxLayout()
-        current_layout.addWidget(current_label)
-        current_layout.addWidget(self.current_lcd)
-        indicators_layout.addLayout(current_layout)
-
-        energy_layout = QVBoxLayout()
-        energy_layout.addWidget(energy_label)
-        energy_layout.addWidget(self.energy_lcd)
-        indicators_layout.addLayout(energy_layout)
-
-        # Додаємо горизонтальний блок індикаторів під годинником
-        bottom_right_layout.addLayout(indicators_layout)
+        # Додавання до головного компонувальника
+        self.bottom_right_layout.addLayout(self.left_layout)  # Ліва частина
+        self.bottom_right_layout.addLayout(self.grid_layout)  # Права частина (сітка)
 
         right_splitter.addWidget(bottom_right_widget)
 
@@ -145,25 +188,39 @@ class DeviceDetailsSDM120Widget(QWidget):
         splitter.handle(1).setEnabled(False)
 
     def update_ui(self):
-        # Оновлення годинника
         self.update_clock()
-
-        # Оновлення показників
         self.update_indicators()
+        if self.auto_update_checkbox.isChecked():
+            self.plot_graphs()
 
     def update_indicators(self):
-        last_report = self.db_session.query(SDM120ReportTmp).filter_by(device_id=self.device.id).order_by(desc(SDM120ReportTmp.timestamp)).first()
+        last_report = (self.db_session.query(SDM120ReportTmp)
+                       .filter_by(device_id=self.device.id).order_by(desc(SDM120ReportTmp.timestamp)).first())
         if last_report:
             self.voltage_lcd.display(getattr(last_report, 'voltage', 0))
             self.current_lcd.display(getattr(last_report, 'current', 0))
             self.energy_lcd.display(getattr(last_report, 'total_active_energy', 0))
+            self.power_lcd.display(getattr(last_report, 'active_power', 0))
 
     def update_clock(self):
-        # Оновлення поточного часу
         current_time = QTime.currentTime().toString("HH:mm:ss")
-        self.clock_label.setText(f"Поточний час :{current_time}")
+        self.clock_label.setText(f"{current_time}")
 
     def create_table_model(self, report_data, device):
+        column_labels = {
+            "timestamp": "Час",
+            "total_active_energy": "Спожито",
+            "voltage": "Напруга",
+            "current": "Струм",
+            "active_power": "Активна потужність",
+            "apparent_power": "Повна потужність???",
+            "reactive_power": "Реактивна потужність",
+            "import_active_energy": "Вхідна активна енергія",
+            "export_active_energy": "Вихідна активна енергія",
+            "total_reactive_energy": "Загальна реактивна енергія",
+            "frequency": "Частота",
+        }
+
         columns = set()
         parameter_units = {}
         if device.parameters:
@@ -180,10 +237,17 @@ class DeviceDetailsSDM120Widget(QWidget):
         model = QStandardItemModel(len(report_data), len(columns))
         header_labels = []
         for column in columns:
+            custom_label = column_labels.get(column, column)
             unit = parameter_units.get(column, "")
-            header_labels.append(f"{column} ({unit})" if unit else column)
+            header_labels.append(f"{custom_label} ({unit})" if unit else custom_label)
 
-        model.setHorizontalHeaderLabels(header_labels)
+        bold_font = QFont()
+        bold_font.setBold(True)
+        bold_font.setPointSize(12)
+
+        for col_index, header in enumerate(header_labels):
+            model.setHeaderData(col_index, Qt.Horizontal, header)
+            model.setHeaderData(col_index, Qt.Horizontal, bold_font, Qt.FontRole)
 
         for row, report in enumerate(report_data):
             for col, column in enumerate(columns):
@@ -225,22 +289,32 @@ class DeviceDetailsSDM120Widget(QWidget):
 
         self.voltage_graph_widget.clear()
 
-        self.voltage_graph_widget.setAxisItems({'bottom': DateAxisItem()})
+        # Використовуємо кастомну вісь із DateAxisItem
+        self.voltage_graph_widget.setAxisItems({'bottom': DateAxisItem(orientation='bottom')})
 
-        self.voltage_graph_widget.plot(timestamps_numeric, voltages, pen=pg.mkPen(color='b', width=2), name="Напруга")
-        self.voltage_graph_widget.setYRange(0, 400)  # Встановлюємо фіксований діапазон для напруги
-        self.voltage_graph_widget.setLabel('bottom', 'Час')
+        self.voltage_graph_widget.plot(
+            timestamps_numeric,
+            voltages,
+            pen=pg.mkPen(color='b', width=2),
+            name="Напруга"
+        )
+        self.voltage_graph_widget.setYRange(0, 400)
 
     def plot_current(self, timestamps, currents):
         timestamps_numeric = [ts.timestamp() for ts in timestamps]
 
         self.current_graph_widget.clear()
 
-        self.current_graph_widget.setAxisItems({'bottom': DateAxisItem()})
+        # Використовуємо кастомну вісь із DateAxisItem
+        self.current_graph_widget.setAxisItems({'bottom': DateAxisItem(orientation='bottom')})
 
-        self.current_graph_widget.plot(timestamps_numeric, currents, pen=pg.mkPen(color='r', width=2), name="Струм")
-        self.current_graph_widget.setYRange(0, 200)  # Встановлюємо фіксований діапазон для струму
-        self.current_graph_widget.setLabel('bottom', 'Час')
+        self.current_graph_widget.plot(
+            timestamps_numeric,
+            currents,
+            pen=pg.mkPen(color='r', width=2),
+            name="Струм"
+        )
+        self.current_graph_widget.setYRange(0, 200)
 
     def plot_energy(self, hourly_timestamps, hourly_energy):
         hourly_timestamps_numeric = [ts.timestamp() for ts in hourly_timestamps]
@@ -257,16 +331,20 @@ class DeviceDetailsSDM120Widget(QWidget):
 
         self.energy_graph_widget.clear()
 
-        self.energy_graph_widget.setAxisItems({'bottom': DateAxisItem()})
+        # Використовуємо кастомну вісь із DateAxisItem
+        self.energy_graph_widget.setAxisItems({'bottom': DateAxisItem(orientation='bottom')})
 
-        bar_item = pg.BarGraphItem(x=[x[0] for x in bar_x], height=bar_heights, width=1800, brush='g')
+        bar_item = pg.BarGraphItem(
+            x=[x[0] for x in bar_x],
+            height=bar_heights,
+            width=1800,  # Половина години для зручного масштабування
+            brush='g'
+        )
 
         self.energy_graph_widget.addItem(bar_item)
         self.energy_graph_widget.setYRange(0, max(hourly_energy))
-        self.energy_graph_widget.setLabel('bottom', 'Час')
 
     def plot_graphs(self, start_date=None, end_date=None):
-        # Якщо дати не вказані, використовуємо повний діапазон
         query = self.db_session.query(SDM120Report).filter_by(device_id=self.device.id)
         if start_date and end_date:
             query = query.filter(SDM120Report.timestamp >= start_date, SDM120Report.timestamp <= end_date)
@@ -290,7 +368,6 @@ class DeviceDetailsSDM120Widget(QWidget):
         self.plot_voltage(timestamps, voltages)
         self.plot_current(timestamps, currents)
 
-        # Підрахунок годинної енергії
         hourly_energy = []
         hourly_timestamps = []
 
@@ -374,19 +451,22 @@ class DeviceDetailsSDM120Widget(QWidget):
         self.energy_graph_widget.plot([], pen=pg.mkPen(color='g', width=2))  # Зелена лінія для енергії
 
     def open_export_dialog(self):
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Експорт в Excel")
-        dialog.setFixedSize(400, 150)
-        layout = QVBoxLayout(dialog)
+        # Створення діалогу
+        self.dialog = QDialog(self)
+        self.dialog.setWindowTitle("Експорт в Excel")
+        self.dialog.setFixedSize(400, 150)
+
+        # Лейаут для діалогу
+        layout = QVBoxLayout(self.dialog)
 
         # Вибір діапазону дат
         date_range_layout = QHBoxLayout()
         start_label = QLabel("Початок:")
-        self.start_date = QDateEdit((QDate.currentDate().addYears(-1)))
-        self.start_date.setCalendarPopup(True)
+        self.start_date = QDateEdit(QDate.currentDate().addYears(-1))  # Початкова дата (1 рік тому)
+        self.start_date.setCalendarPopup(True)  # Календарний спливаючий вибір
         end_label = QLabel("Кінець:")
-        self.end_date = QDateEdit(QDate.currentDate())
-        self.end_date.setCalendarPopup(True)
+        self.end_date = QDateEdit(QDate.currentDate())  # Кінцева дата (сьогодні)
+        self.end_date.setCalendarPopup(True)  # Календарний спливаючий вибір
         date_range_layout.addWidget(start_label)
         date_range_layout.addWidget(self.start_date)
         date_range_layout.addWidget(end_label)
@@ -394,23 +474,19 @@ class DeviceDetailsSDM120Widget(QWidget):
 
         layout.addLayout(date_range_layout)
 
-        # Опції для включення середнього арифметичного та графіків
-        self.include_average = QCheckBox("Додати середнє арифметичне")
+        # Чекбокс для додавання графіків
         self.include_charts = QCheckBox("Додати графіки")
-        self.include_average.setChecked(True)
-        self.include_charts.setChecked(True)
-
-        layout.addWidget(self.include_average)
+        self.include_charts.setChecked(True)  # За замовчуванням графіки додаються
         layout.addWidget(self.include_charts)
 
         # Кнопка для експорту
         save_button = QPushButton("Зберегти в Excel")
         save_button.clicked.connect(self.export_to_excel)
-
         layout.addWidget(save_button)
 
-        dialog.setLayout(layout)
-        dialog.exec()
+        # Встановлюємо лейаут і показуємо діалог
+        self.dialog.setLayout(layout)
+        self.dialog.exec()
 
     def export_to_excel(self):
         # Отримуємо початкову та кінцеву дату
@@ -424,108 +500,84 @@ class DeviceDetailsSDM120Widget(QWidget):
             SDM120Report.timestamp <= end_datetime
         ).order_by(SDM120Report.timestamp).all()
 
+        # Перевірка, чи є дані для експорту
         if not report_data:
             QMessageBox.warning(self, "Експорт", "Дані за вибраний період відсутні.")
             return
 
-        # Перетворюємо дані у DataFrame
-        data = [{
-            "Час": report.timestamp,
-            "Напруга (V)": report.voltage,
-            "Струм (A)": report.current,
-            "Енергія (kWh)": report.total_active_energy,
-        } for report in report_data]
+        # Запит на збереження шляху файлу
+        file_path, _ = QFileDialog.getSaveFileName(self, "Зберегти файл", f"{self.device.name}_{start_datetime.date()}_{end_datetime.date()}.xlsx", "Excel Files (*.xlsx)")
 
-        df = pd.DataFrame(data)
+        if not file_path:
+            return  # Якщо користувач не вибрав файл для збереження
 
-        # Діалог для вибору шляху збереження
-        save_path, _ = QFileDialog.getSaveFileName(self, "Зберегти файл", "", "Excel Files (*.xlsx);;All Files (*)")
+        try:
+            # Створюємо новий робочий зошит Excel
+            workbook = xlsxwriter.Workbook(file_path)
 
-        if save_path:
-            wb = Workbook()
-            ws = wb.active
-            ws.title = "Дані"
+            # Додаємо лист "Дані"
+            worksheet = workbook.add_worksheet('Дані')
 
-            # Додаємо заголовки стовпців
-            headers = ["Час", "Напруга (V)", "Струм (A)", "Енергія (kWh)"]
-            ws.append(headers)
+            # Додаємо заголовки
+            worksheet.write('A1', 'Дата/Час')
+            worksheet.write('B1', 'Напруга (V)')
+            worksheet.write('C1', 'Струм (A)')
+            worksheet.write('D1', 'Потужність (W)')
 
-            # Якщо включено додавання середнього арифметичного
-            if self.include_average.isChecked():
-                # Додаємо дані до Excel з третього рядка
-                ws.append(['', '', '', ''])
-                for row in data:
-                    ws.append([row['Час'], row['Напруга (V)'], row['Струм (A)'], row['Енергія (kWh)']])
-                # Додаємо середнє значення для напруги та струму (в рядок 2)
-                ws.cell(row=2, column=1,value="Середнє значення:")
-                for col_idx, col in enumerate(df.columns[1:3], start=2):  # Лише для напруги та струму
-                    col_letter = ws.cell(row=2, column=col_idx).column_letter
-                    avg_formula = f"=AVERAGE({col_letter}3:{col_letter}{len(df) + 1})"
-                    ws.cell(row=2, column=col_idx, value=avg_formula)
-            else:
-                for row in data:
-                    ws.append([row['Час'], row['Напруга (V)'], row['Струм (A)'], row['Енергія (kWh)']])
+            row = 1
+            for entry in report_data:
+                timestamp_str = entry.timestamp.strftime('%Y-%m-%d %H:%M:%S')
+                worksheet.write(row, 0, timestamp_str)  # Дата/Час
+                worksheet.write(row, 1, entry.voltage)  # Напруга
+                worksheet.write(row, 2, entry.current)  # Струм
+                worksheet.write(row, 3, entry.active_power)    # Потужність
 
-            # Форматування заголовків
-            for cell in ws[1]:
-                cell.font = Font(bold=True)
+                row += 1
 
-            # Встановлюємо ширину стовпців у 120 пікселів
-            for col in ws.columns:
-                ws.column_dimensions[col[0].column_letter].width = 20  # Відповідає 120 пікселям
+            for col in range(4):  # Для перших 4 колонок на листі "Дані"
+                worksheet.set_column(col, col, 20)
 
-            if self.include_charts.isChecked():
-                    # Додаємо графіки на окремий аркуш
-                    charts_sheet = wb.create_sheet(title="Графіки")
+            # Якщо користувач вибрав додавання графіків
+            if self.include_charts:
+                # Створюємо окремі листи для кожного параметра (Напруга, Струм, Потужність)
+                parameters = ['voltage', 'current', 'active_power']
+                for param in parameters:
+                    worksheet_param = workbook.add_worksheet(param)
 
-                    # Графік напруги (V) - Лінійний графік
-                    voltage_chart = LineChart()
-                    voltage_chart.title = "Напруга (V)"
-                    voltage_chart.style = 13
-                    voltage_chart.x_axis.title = "Час"
-                    voltage_chart.y_axis.title = "Напруга (V)"
-                    voltage_chart.width = 20
-                    voltage_chart.height = 10
-                    voltage_chart.add_data(
-                        Reference(ws, min_col=2, min_row=1, max_row=len(df) + 1), titles_from_data=True
-                    )
-                    voltage_chart.set_categories(
-                        Reference(ws, min_col=1, min_row=2, max_row=len(df) + 1)  # Час для осі X
-                    )
-                    charts_sheet.add_chart(voltage_chart, "A1")
+                    # Записуємо дані для кожного параметра
+                    worksheet_param.write('A1', 'Дата/Час')
+                    worksheet_param.write('B1', param)
 
-                    # Графік струму (A) - Лінійний графік
-                    current_chart = LineChart()
-                    current_chart.title = "Струм (A)"
-                    current_chart.style = 13
-                    current_chart.x_axis.title = "Час"
-                    current_chart.y_axis.title = "Струм (A)"
-                    current_chart.width = 20
-                    current_chart.height = 10
-                    current_chart.add_data(
-                        Reference(ws, min_col=3, min_row=1, max_row=len(df) + 1), titles_from_data=True
-                    )
-                    current_chart.set_categories(
-                        Reference(ws, min_col=1, min_row=2, max_row=len(df) + 1)  # Час для осі X
-                    )
-                    charts_sheet.add_chart(current_chart, "A20")
+                    row = 1
+                    for entry in report_data:
+                        worksheet_param.write(row, 0, entry.timestamp.strftime('%Y-%m-%d %H:%M:%S'))  # Форматована дата/час
+                        worksheet_param.write(row, 1, getattr(entry, param.lower()))  # Вибір відповідного параметра
+                        row += 1
 
-                    # Графік енергії (kWh) - Стовпчастий графік
-                    energy_chart = BarChart()
-                    energy_chart.title = "Енергія (kWh)"
-                    energy_chart.style = 10
-                    energy_chart.x_axis.title = "Час"
-                    energy_chart.y_axis.title = "Енергія (kWh)"
-                    energy_chart.width = 20
-                    energy_chart.height = 10
-                    energy_chart.add_data(
-                        Reference(ws, min_col=4, min_row=1, max_row=len(df) + 1), titles_from_data=True
-                    )
-                    energy_chart.set_categories(
-                        Reference(ws, min_col=1, min_row=2, max_row=len(df) + 1)  # Час для осі X
-                    )
-                    charts_sheet.add_chart(energy_chart, "A40")
+                    # Додаємо зведену таблицю для кожного параметра
+                    worksheet_param.add_table(f'A1:B{row}', {'name': f'{param}_data', 'columns': [{'header': 'Дата/Час'}, {'header': param}]})
 
-            # Зберігаємо файл
-            wb.save(save_path)
-            QMessageBox.information(self, "Експорт", f"Дані успішно збережено в {save_path}")
+                    # Додаємо графік
+                    chart = workbook.add_chart({'type': 'line'})
+                    chart.add_series({'values': f'={param}!$B$2:$B${row}', 'name': param, 'categories': f'={param}!$A$2:$A${row-1}'})
+                    chart.set_title({'name': param})
+
+                    # Форматування осі X для відображення дати та часу
+                    chart.set_x_axis({'date_axis': True, 'num_format': 'yyyy-mm-dd hh:mm:ss'})
+
+                    worksheet_param.insert_chart('D2', chart)
+
+                    for col in range(4):  # Для перших 4 колонок на листі "Дані"
+                        worksheet.set_column(col, col, 20)
+
+            # Збереження файлу
+            workbook.close()
+
+            # Повідомлення про успіх
+            QMessageBox.information(self, "Експорт", "Експорт даних в Excel пройшов успішно.")
+
+            # Закриваємо діалог
+            self.dialog.accept()
+
+        except Exception as e:
+            QMessageBox.warning(self, "Помилка", f"Сталася помилка при експорті даних: {e}")

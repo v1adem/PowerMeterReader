@@ -3,6 +3,8 @@ from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QListView, QPushButton
     QHBoxLayout, QDialog, QFormLayout, QComboBox, QLineEdit, QDialogButtonBox, QSpinBox, QRadioButton, QTimeEdit, \
     QCheckBox
 from PyQt5.QtCore import Qt, QSize, QTime
+
+from config import resource_path
 from models.Device import Device
 
 
@@ -66,13 +68,13 @@ class ProjectViewWidget(QWidget):
             item_layout.addWidget(toggle_status_button)
 
             edit_button = QPushButton()
-            edit_button.setIcon(QIcon("pyqt/icons/edit.png"))
+            edit_button.setIcon(QIcon(resource_path("pyqt/icons/edit.png")))
             edit_button.setFixedSize(36, 36)
             edit_button.clicked.connect(lambda _, d=device: self.edit_device(d))
             item_layout.addWidget(edit_button)
 
             delete_button = QPushButton()
-            delete_button.setIcon(QIcon("pyqt/icons/delete.png"))
+            delete_button.setIcon(QIcon(resource_path("pyqt/icons/delete.png")))
             delete_button.setFixedSize(36, 36)
             delete_button.clicked.connect(lambda _, d=device: self.delete_device(d))
             item_layout.addWidget(delete_button)

@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QStandardItemModel, QStandardItem, QIcon
 from PyQt5.QtCore import Qt, QSize
 
+from config import resource_path
 from models.Project import Project
 
 
@@ -83,14 +84,14 @@ class ProjectsWidget(QWidget):
             item_layout.addWidget(connection_label)
 
             edit_button = QPushButton()
-            edit_button.setIcon(QIcon("pyqt/icons/edit.png"))
+            edit_button.setIcon(QIcon(resource_path("pyqt/icons/edit.png")))
             edit_button.setStyleSheet("margin: 0px;")
             edit_button.setFixedSize(24, 24)
             edit_button.setIconSize(QSize(22, 22))  # Скейлим іконку до розміру кнопки
             edit_button.clicked.connect(lambda _, p=project: self.edit_project(p))
 
             delete_button = QPushButton()
-            delete_button.setIcon(QIcon("pyqt/icons/delete.png"))
+            delete_button.setIcon(QIcon(resource_path("pyqt/icons/delete.png")))
             delete_button.setFixedSize(24, 24)
             delete_button.setStyleSheet("margin: 0px;")
             delete_button.setIconSize(QSize(22, 22))  # Скейлим іконку до розміру кнопки

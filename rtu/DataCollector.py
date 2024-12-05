@@ -1,107 +1,99 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from PyQt5.QtCore import QObject
+from sqlalchemy import select
 
 from models.Device import Device
 from models.Report import SDM120Report, SDM630Report, SDM120ReportTmp
 from rtu.SerialReaderRS485 import SerialReaderRS485
 
 
-def get_data_from_device(device, project, properties_list):
-    print("reading started")
-    client = SerialReaderRS485(device.name, device.model, project.port, device.device_address, project.baudrate,
+async def get_data_from_device(device, project, properties_list, db_session):
+    client = SerialReaderRS485(db_session, device.name, device.model, project.port, device.device_address,
+                               project.baudrate,
                                project.bytesize, project.parity, project.stopbits)
-    return client.read_all_properties(properties_list)
+    return await client.read_all_properties(properties_list, device)
 
 
 class DataCollector(QObject):
-    def __init__(self, db_session, project):
+    def __init__(self, db_session, project, port_queue, status_update_signal):
         super().__init__()
         self.db_session = db_session
         self.project = project
-        self.devices_status = {}  # DeviceName: True/False
+        self.port_queue = port_queue
+        self.status_update_signal = status_update_signal  # Сигнал для оновлення статусу порту
 
-    def collect_data(self):
-        devices = (
-            self.db_session.query(Device)
-            .filter(Device.project_id == self.project.id)
-            .all()
-        )
-
-        for device in devices:
-            print(f"Device {device.name} is ok")
-            if device.reading_status is False:
-                continue
-
-            if device.model == "SDM120":
-                last_report = (
-                    self.db_session.query(SDM120Report)
-                    .filter(SDM120Report.device_id == device.id)
-                    .order_by(SDM120Report.timestamp.desc())
-                    .first()
-                )
-            elif device.model == "SDM630":
-                last_report = (
-                    self.db_session.query(SDM630Report)
-                    .filter(SDM630Report.device_id == device.id)
-                    .order_by(SDM630Report.timestamp.desc())
-                    .first()
-                )
-            else:
-                print("Invalid Device Model")
-                continue
-
-            properties_list = device.get_parameter_names()
-            new_data = get_data_from_device(device, self.project, properties_list)
-
-            self.devices_status[device.name] = True
-
-            tmp_report_data = {
-                "device_id": device.id,
-                "voltage": new_data.get("voltage"),
-                "current": new_data.get("current"),
-                "active_power": new_data.get("active_power"),
-                "total_active_energy": new_data.get("total_active_energy"),
-            }
-
-            tmp_report = SDM120ReportTmp(**tmp_report_data)
-            self.db_session.add(tmp_report)
-            self.db_session.commit()
-
-            tmp_reports = (
-                self.db_session.query(SDM120ReportTmp)
-                .filter(SDM120ReportTmp.device_id == device.id)
-                .order_by(SDM120ReportTmp.timestamp.desc())
-                .all()
+    async def collect_data(self):
+        async with self.db_session() as session:
+            result = await session.execute(
+                select(Device).filter(Device.project_id == self.project.id)
             )
-            if len(tmp_reports) > 10:
-                oldest_report = tmp_reports[-1]
-                self.db_session.delete(oldest_report)
-                self.db_session.commit()
+            devices = result.scalars().all()
 
-            if last_report:
-                device_reading_interval = device.reading_interval - 10
-                if device.reading_type == 2:
-                    reading_time = last_report.reading_time
-                    start_of_day = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-                    if datetime.now() < (
-                            start_of_day + timedelta(minutes=reading_time)) or last_report.timestamp >= start_of_day:
-                        continue
+            for device in devices:
+                if device.reading_status:
+                    self.port_queue.put({
+                        'device': device,
+                        'properties_list': device.get_parameter_names(),
+                        'callback': self.process_device
+                    })
 
-                if last_report.timestamp + timedelta(seconds=device_reading_interval) > datetime.now():
-                    continue
+    async def process_device(self, device, properties_list):
+        try:
+            print(f"{datetime.now().strftime('%d/%m/%Y, %H:%M:%S')} - {device.name} is reading")
+            new_data = await get_data_from_device(db_session=self.db_session, project=self.project,
+                                                  properties_list=properties_list, device=device)
 
-            report_data = {
-                "device_id": device.id,
-            }
-            report_data.update({key: value for key, value in new_data.items() if value is not None})
+            if new_data:
+                await self.create_tmp_report(device, new_data)
+                await self.create_full_report(device, new_data)
+                await self.update_project_connection_status(device.project, True)
 
-            if device.model == "SDM120":
-                new_report = SDM120Report(**report_data)
-            elif device.model == "SDM630":
-                new_report = SDM630Report(**report_data)
+        except Exception as e:
+            print(f"Error processing device {device.name}: {e}")
+            await self.update_project_connection_status(device.project, False)
+
+    async def create_tmp_report(self, device, new_data):
+        tmp_report_data = {
+            "device_id": device.id,
+            "voltage": new_data.get("voltage"),
+            "current": new_data.get("current"),
+            "active_power": new_data.get("active_power"),
+            "total_active_energy": new_data.get("total_active_energy"),
+        }
+
+        tmp_report = SDM120ReportTmp(**tmp_report_data)
+
+        async with self.db_session() as session:
+            session.add(tmp_report)
+            await session.commit()
+
+    async def create_full_report(self, device, new_data):
+        report_data = {
+            "device_id": device.id,
+        }
+        report_data.update({key: value for key, value in new_data.items() if value is not None})
+
+        if device.model == "SDM120":
+            new_report = SDM120Report(**report_data)
+        elif device.model == "SDM630":
+            new_report = SDM630Report(**report_data)
+        else:
+            return
+
+        async with self.db_session() as session:
+            session.add(new_report)
+            await session.commit()
+
+    async def update_project_connection_status(self, project, is_connected):
+        """Оновлюємо статус порту проєкту лише якщо він змінився"""
+        async with self.db_session() as session:
+            db_project = await session.get(type(project), project.id)
+            if db_project.is_connected != is_connected:
+                db_project.is_connected = is_connected
+                await session.commit()
+                # Викликаємо сигнал для оновлення UI, передаючи проект
+                print(f"Статус порту для проєкту {project.name} змінився!!!")
+                self.status_update_signal.emit(db_project)
             else:
-                continue
-
-            self.db_session.add(new_report)
-            self.db_session.commit()
+                print(f"Статус порту для проєкту {project.name} не змінився.")

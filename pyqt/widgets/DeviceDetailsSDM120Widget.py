@@ -12,59 +12,10 @@ from PyQt5.QtWidgets import QMessageBox, QFileDialog
 from pyqtgraph import AxisItem
 
 from sqlalchemy import desc
+
+from config import resource_path
 from models.Report import SDM120Report, SDM630Report, SDM120ReportTmp
 
-
-class FilterDialog(QDialog):
-    def __init__(self, columns, device, db_session):
-        super().__init__()
-        self.setWindowTitle("Фільтри таблиці")
-        self.device = device
-        self.db_session = db_session
-
-        self.filters = {}  # Зберігаємо фільтри
-
-        layout = QVBoxLayout(self)
-
-        form_layout = QFormLayout()
-
-        # Створюємо комбіновані фільтри для кожного стовпця
-        for column in columns:
-            label = QLabel(f"Фільтр для {column}")
-            filter_input = QLineEdit(self)
-            form_layout.addRow(label, filter_input)
-            self.filters[column] = filter_input  # Додаємо фільтр до словника
-
-        layout.addLayout(form_layout)
-
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
-
-    def get_filters(self):
-        # Повертає фільтри, застосовані користувачем
-        return {column: filter_input.text() for column, filter_input in self.filters.items()}
-
-    def apply_filters(self, report_data, columns):
-        # Застосовуємо фільтри до даних
-        filters = self.get_filters()
-        filtered_data = []
-        for report in report_data:
-            match = True
-            for column, filter_value in filters.items():
-                if filter_value:  # Якщо фільтр не порожній
-                    column_value = getattr(report, column)
-                    if isinstance(column_value, str) and filter_value.lower() not in str(column_value).lower():
-                        match = False
-                        break
-                    elif isinstance(column_value, (int, float)) and column_value != float(filter_value):
-                        match = False
-                        break
-            if match:
-                filtered_data.append(report)
-
-        return filtered_data
 
 class DateAxisItem(AxisItem):
     def tickStrings(self, values, scale, spacing):
@@ -107,6 +58,7 @@ class DeviceDetailsSDM120Widget(QWidget):
         table_widget = QWidget()
         table_layout = QVBoxLayout(table_widget)
         self.label = QLabel(f"Ім'я пристрою: {device.name} | Модель пристрою: {device.model}")
+        self.label.setStyleSheet("font-size: 18px;")
         table_layout.addWidget(self.label)
 
         button_layout = QHBoxLayout()
@@ -136,7 +88,7 @@ class DeviceDetailsSDM120Widget(QWidget):
         table_layout.addLayout(filter_layout)
 
         refresh_button = QPushButton()
-        refresh_button.setIcon(QIcon("pyqt/icons/refresh.png"))
+        refresh_button.setIcon(QIcon(resource_path("pyqt/icons/refresh.png")))
         refresh_button.setFixedSize(36, 36)
         refresh_button.clicked.connect(self.load_report_data)
         button_layout.addWidget(refresh_button)
@@ -175,7 +127,7 @@ class DeviceDetailsSDM120Widget(QWidget):
         self.voltage_curve = self.voltage_graph_widget.plot(pen=pg.mkPen(color='b', width=2), name="Напруга")
         self.current_curve = self.current_graph_widget.plot(pen=pg.mkPen(color='r', width=2), name="Струм")
 
-        self.energy_bar_item = pg.BarGraphItem(width=5, height=5, brush='g', x=1)
+        self.energy_bar_item = pg.BarGraphItem(width=0, height=0, brush='g', x=1)
         self.energy_graph_widget.addItem(self.energy_bar_item)
 
         # Для графіка напруги
@@ -282,7 +234,9 @@ class DeviceDetailsSDM120Widget(QWidget):
 
     def update_indicators(self):
         last_report = (self.db_session.query(SDM120ReportTmp)
-                       .filter_by(device_id=self.device.id).order_by(desc(SDM120ReportTmp.timestamp)).first())
+                       .filter_by(device_id=self.device.id)
+                       .order_by(desc(SDM120ReportTmp.timestamp))
+                       .first())
         if last_report:
             self.voltage_lcd.display(getattr(last_report, 'voltage', 0))
             self.current_lcd.display(getattr(last_report, 'current', 0))
@@ -345,7 +299,7 @@ class DeviceDetailsSDM120Widget(QWidget):
 
     def load_report_data(self):
         start_date = self.start_date_edit.date().toPyDate()
-        end_date = self.end_date_edit.date().toPyDate()
+        end_date = self.end_date_edit.date().addDays(1).toPyDate()
 
         if self.device.model == "SDM120":
             report_data = self.db_session.query(SDM120Report).filter_by(device_id=self.device.id).filter(
@@ -456,7 +410,6 @@ class DeviceDetailsSDM120Widget(QWidget):
         report_data = query.order_by(desc(SDM120Report.timestamp)).all()
 
         if not report_data:
-            QMessageBox.warning(self, "Попередження", "Дані відсутні для заданого періоду.")
             self.start_date = None
             self.end_date = None
             return

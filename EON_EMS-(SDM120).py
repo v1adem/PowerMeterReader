@@ -1,8 +1,9 @@
 import sys
 import os
+import asyncio
 from PyQt5.QtWidgets import QApplication
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from qasync import QEventLoop
 
 from config import Base
 from pyqt.MainWindow import MainWindow
@@ -13,37 +14,42 @@ def get_database_path():
     Визначає шлях до бази даних у каталозі APPDATA (Windows)
     або відповідному каталозі для Linux/MacOS.
     """
-    # Отримуємо каталог APPDATA (Windows) або аналог на інших ОС
     appdata_dir = os.getenv('APPDATA') if sys.platform == 'win32' else os.path.expanduser('~/.config')
     app_dir = os.path.join(appdata_dir, 'PowerMeterReader')
-
-    # Створюємо каталог, якщо він не існує
     os.makedirs(app_dir, exist_ok=True)
-
-    # Повертаємо шлях до файлу бази даних
     return os.path.join(app_dir, 'app.db')
 
 
-def create_database_and_tables(db_path):
+async def create_database_and_tables(db_path):
     """
     Створює базу даних і таблиці, якщо вони ще не існують.
     """
-    engine = create_engine(f'sqlite:///{db_path}')
-    Base.metadata.create_all(engine)
+    # Використовуємо асинхронний engine для SQLite
+    engine = create_async_engine(f'sqlite+aiosqlite:///{db_path}', echo=True)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     return engine
 
 
-if __name__ == "__main__":
+async def main():
     # Отримуємо шлях до бази даних
     db_path = get_database_path()
 
     # Створюємо базу даних і таблиці
-    engine = create_database_and_tables(db_path)
-    Session = sessionmaker(bind=engine)
-    session = Session()
-
-    # Запускаємо PyQt-додаток
+    engine = await create_database_and_tables(db_path)
+    # Створюємо PyQt-додаток
     app = QApplication(sys.argv)
-    window = MainWindow(session)
+
+    # Інтеграція asyncio з PyQt
+    loop = QEventLoop(app)
+    asyncio.set_event_loop(loop)
+
+    window = MainWindow(engine)
     window.show()
-    sys.exit(app.exec_())
+
+    # Запускаємо подієвий цикл
+    loop.run_forever()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

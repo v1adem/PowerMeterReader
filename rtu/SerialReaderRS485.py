@@ -46,6 +46,7 @@ def decode_32bit_float(data):
 
 class SerialReaderRS485:
     def __init__(self,
+                 db_session,
                  device_custom_name,
                  device_name,
                  port,
@@ -54,6 +55,7 @@ class SerialReaderRS485:
                  bytesize,
                  parity,
                  stopbits):
+        self.db_session = db_session
         self.device_custom_name = device_custom_name
         self.device_address = device_address
 
@@ -63,18 +65,20 @@ class SerialReaderRS485:
             property_specifications_list = json.load(f)
         self.property_specifications_list = property_specifications_list
 
+        # Зменшуємо таймаут з'єднання
         self.client = ModbusSerialClient(
             port=f"COM{port}",
             baudrate=baudrate,
             parity=parity,
             stopbits=stopbits,
             bytesize=bytesize,
+            timeout=0.2
         )
 
     def connect(self):
         return self.client.connect()
 
-    def read_property(self, property_name: str):
+    def read_property(self, property_name: str, device):
         if self.connect():
             property_specifications = self.property_specifications_list[property_name]
             property_address = property_specifications['register']
@@ -87,28 +91,38 @@ class SerialReaderRS485:
                 elif property_specifications["type"] == "input":
                     response = self.client.read_input_registers(property_address, count=count,
                                                                 slave=self.device_address)
+
                 if response.isError():
                     error(
                         f"{datetime.now().strftime('%d/%m/%Y %H:%M:%S')} | No response | {property_specifications}")
+                    self.disable_device(device)  # Вимкнути пристрій у разі помилки
                     return None
 
                 return decode_data(data=response.registers, property_specifications=property_specifications)
 
             except Exception as e:
                 error(f"{datetime.now().strftime('%d/%m/%Y %H:%M:%S')} | {e}")
+                self.disable_device(device)  # Вимкнути пристрій у разі виключення
 
             finally:
                 self.client.close()
 
         else:
             error("Device not connected")
+            self.disable_device(device)  # Вимкнути пристрій, якщо не вдалося підключитися
 
-    def read_all_properties(self, properties_list):
+    def read_all_properties(self, properties_list, device):
         result = {}
         for property_name in properties_list:
-            value = self.read_property(property_name)
+            value = self.read_property(property_name, device)
             if value is not None:
                 result[property_name] = value
             else:
-                result[property_name] = 0
+                return result  # Якщо хоча б одне значення не вдалося отримати, припиняємо зчитування
         return result
+
+    def disable_device(self, device):
+        # Оновлюємо статус пристрою в базі даних
+        device.reading_status = False  # Зміна статусу на "Не читати"
+        self.db_session.commit()  # Збереження змін в базі даних
+        print(f"Device {device.name} is now marked as 'Not Reading' due to communication failure.")

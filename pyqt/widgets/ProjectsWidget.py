@@ -1,26 +1,27 @@
+import asyncio
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QListView, QPushButton, QMessageBox, QInputDialog, QComboBox, QHBoxLayout, QDialog,
-    QDialogButtonBox, QSpinBox, QLineEdit, QSizePolicy
+    QDialogButtonBox, QSpinBox, QLineEdit
 )
 from PyQt5.QtGui import QStandardItemModel, QStandardItem, QIcon
 from PyQt5.QtCore import Qt, QSize
+from sqlalchemy import select
 
 from config import resource_path
 from models.Project import Project
 
 
 class ProjectsWidget(QWidget):
-    def __init__(self, main_window):
+    def __init__(self, main_window, status_update_signal):
         super().__init__(main_window)
-
         self.main_window = main_window
-        self.db_session = main_window.db_session
+        self.db_session = main_window.db_session  # Це має бути асинхронна сесія
         self.isAdmin = main_window.isAdmin
-        self.setWindowTitle("Список проєктів")
 
         self.layout = QVBoxLayout(self)
 
         self.projects_label = QLabel("Проєкти", self)
+        self.projects_label.setStyleSheet("font-size: 18px;")
         self.layout.addWidget(self.projects_label)
 
         self.projects_list = QListView(self)
@@ -31,9 +32,8 @@ class ProjectsWidget(QWidget):
 
         self.projects_list.doubleClicked.connect(self.open_project_details)
 
-        self.load_projects()
-
         self.add_project_button = QPushButton("Додати новий проєкт", self)
+        self.add_project_button.setStyleSheet("font-size: 18px;")
         self.layout.addWidget(self.add_project_button)
 
         if not self.isAdmin:
@@ -41,9 +41,29 @@ class ProjectsWidget(QWidget):
 
         self.add_project_button.clicked.connect(self.add_new_project)
 
-    def load_projects(self):
+        # Підключення сигналу до методів, які оновлюють UI
+        self.status_update_signal = status_update_signal
+        status_update_signal.connect(self.update_project_connection_status)
+
+        # Запуск асинхронного оновлення
+        asyncio.create_task(self.update_ui_loop())
+
+    async def update_ui_loop(self):
+        """Асинхронне оновлення UI"""
+        while True:
+            await self.load_projects()
+            await asyncio.sleep(5)  # Інтервал оновлення у секундах
+
+    async def load_projects(self):
+        """Асинхронне завантаження проєктів з бази даних"""
         self.projects_model.clear()
-        projects = self.db_session.query(Project).all()
+
+        available_ports = [f"COM{i}" for i in range(1, 256)]
+
+        async with self.db_session() as session:
+            async with session.begin():
+                projects = await session.execute(Project.select())
+                projects = projects.scalars().all()
 
         for index, project in enumerate(projects, start=1):
             item = QStandardItem()
@@ -54,107 +74,115 @@ class ProjectsWidget(QWidget):
 
             item_widget = QWidget()
             item_layout = QHBoxLayout(item_widget)
-
             item_widget.setStyleSheet("border: 1px solid #cccccc;")
 
             # Порядковий номер
-            number_label = QLabel(f"{index}")  # Номер по порядку
+            number_label = QLabel(f"{index}")
             number_label.setStyleSheet("font-size: 14px; color: #666666; border: 0px solid #cccccc;")
-            number_label.setFixedWidth(40)  # Ширина для номера
+            number_label.setFixedWidth(40)
             number_label.setAlignment(Qt.AlignCenter)
             item_layout.addWidget(number_label)
 
             name_label = QLabel(project.name)
-            name_label.setStyleSheet("font-size: 14px; border: 0px solid #cccccc;")
+            name_label.setStyleSheet("font-size: 18px; border: 0px solid #cccccc;")
             item_layout.addWidget(name_label)
 
             port_combo = QComboBox()
-            port_combo.addItems([str(i) for i in range(1, 256)])
-            port_combo.setCurrentText(str(project.port))
-            port_combo.setFixedWidth(48)
+            port_combo.addItems(available_ports)
+
+            port_value = f"COM{project.port}" if project.port is not None else ""
+            if port_value in available_ports:
+                port_combo.setCurrentText(port_value)
+            else:
+                port_combo.setCurrentText("")
+
+            port_combo.setFixedWidth(100)
             port_combo.setStyleSheet("font-size: 14px; border: 0px solid #cccccc;")
             port_combo.currentIndexChanged.connect(
-                lambda _, p=project, combo=port_combo: self.change_project_port(p, combo.currentText())
+                lambda _, p=project, combo=port_combo: asyncio.create_task(
+                    self.change_project_port(p, combo.currentText())
+                )
             )
 
             connection_label = QLabel()
             self.update_connection_status(project, connection_label)
-            connection_label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)  # Мінімальна ширина
-            connection_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # Вирівнювання ліворуч і по центру вертикалі
+            connection_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            connection_label.setFixedWidth(200)
             item_layout.addWidget(connection_label)
+
+            item_layout.addWidget(port_combo)
 
             edit_button = QPushButton()
             edit_button.setIcon(QIcon(resource_path("pyqt/icons/edit.png")))
             edit_button.setStyleSheet("margin: 0px;")
             edit_button.setFixedSize(24, 24)
-            edit_button.setIconSize(QSize(22, 22))  # Скейлим іконку до розміру кнопки
-            edit_button.clicked.connect(lambda _, p=project: self.edit_project(p))
+            edit_button.setIconSize(QSize(22, 22))
+            edit_button.clicked.connect(lambda _, p=project: asyncio.create_task(self.edit_project(p)))
+
+            item_layout.addWidget(edit_button)
 
             delete_button = QPushButton()
             delete_button.setIcon(QIcon(resource_path("pyqt/icons/delete.png")))
             delete_button.setFixedSize(24, 24)
             delete_button.setStyleSheet("margin: 0px;")
-            delete_button.setIconSize(QSize(22, 22))  # Скейлим іконку до розміру кнопки
-            delete_button.clicked.connect(lambda _, p=project: self.delete_project(p))
+            delete_button.setIconSize(QSize(22, 22))
+            delete_button.clicked.connect(lambda _, p=project: asyncio.create_task(self.delete_project(p)))
 
-            if self.isAdmin:
-                item_layout.addWidget(port_combo)
-                item_layout.addWidget(edit_button)
-                item_layout.addWidget(delete_button)
-            else:
-                port_label = QLabel(f"{project.port}")
-                port_label.setStyleSheet("font-size: 14px; border: 0px solid #cccccc; margin: 0px;")
-                item_layout.addWidget(port_label)
+            item_layout.addWidget(delete_button)
 
-            item_layout.setContentsMargins(10, 5, 10, 5)
-            item_layout.setSpacing(10)
-            self.projects_list.setIndexWidget(item.index(), item_widget)
+            self.projects_list.setIndexWidget(self.projects_model.indexFromItem(item), item_widget)
 
-    def update_connection_status(self, project, label):
-        if self.is_connected(project.port):
-            label.setText("✅ З'єднання успішне | Порт:")
-            label.setStyleSheet("color: green; font-size: 14px; alignment: right; margin: 0px; padding: 0px; border: 0px solid #cccccc;")
-        else:
-            label.setText("❌ Немає з'єднання | Порт:")
-            label.setStyleSheet("color: red; font-size: 14px; alignment: right; margin: 0px; padding: 0px; border: 0px solid #cccccc;")
+    async def change_project_port(self, project, new_port):
+        """Асинхронна зміна порту проєкту"""
+        if new_port:
+            try:
+                port_number = int(new_port.replace('COM', ''))
+                async with self.db_session() as session:
+                    async with session.begin():
+                        project.port = port_number
+                        session.add(project)
+                    await session.commit()
+                print(f"Project {project.name} port updated to COM{port_number}")
+            except ValueError:
+                print(f"Invalid port value: {new_port}")
 
-    def change_project_port(self, project, new_port):
-        project.port = int(new_port)
-        self.db_session.commit()
-
-        self.load_projects()
-
-    def is_connected(self, port):
-        return False  # TODO
-
-    def add_new_project(self):
+    async def add_new_project(self):
+        """Асинхронне додавання нового проєкту"""
         project_name, ok = QInputDialog.getText(self, "Додати новий проєкт", "Введіть назву проєкту:")
 
         if ok and project_name:
-            existing_project = self.db_session.query(Project).filter_by(name=project_name).first()
-            if existing_project:
-                QMessageBox.warning(self, "Помилка", "Проєкт з такою назвою вже існує.")
-                return
+            async with self.db_session() as session:
+                async with session.begin():
+                    existing_project = await session.execute(Project.select().where(Project.name == project_name))
+                    if existing_project.scalar():
+                        QMessageBox.warning(self, "Помилка", "Проєкт з такою назвою вже існує.")
+                        return
 
-            new_project = Project(name=project_name, port=1)  # За замовчуванням порт 1
-            self.db_session.add(new_project)
-            self.db_session.commit()
+                    new_project = Project(name=project_name, port=1)
+                    session.add(new_project)
+                    await session.commit()
 
-            self.load_projects()
+            await self.load_projects()
 
-    def delete_project(self, project):
-        reply = QMessageBox.question(self, "Підтвердження видалення",
-                                     f"Ви впевнені, що хочете видалити проєкт '{project.name}'?",
-                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+    async def delete_project(self, project):
+        """Видалення проєкту."""
+        reply = QMessageBox.question(
+            self,
+            "Підтвердження видалення",
+            f"Ви впевнені, що хочете видалити проєкт '{project.name}'?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
         if reply == QMessageBox.Yes:
-            self.db_session.delete(project)
-            self.db_session.commit()
-            self.load_projects()
+            async with self.db_session() as session:
+                async with session.begin():
+                    await session.delete(project)
+            await self.load_projects()
 
-    def edit_project(self, project):
+    async def edit_project(self, project):
+        """Редагування проєкту."""
         dialog = QDialog(self)
         dialog.setWindowTitle("Редагувати проєкт")
-
         layout = QVBoxLayout(dialog)
 
         info_label = QLabel(
@@ -167,31 +195,26 @@ class ProjectsWidget(QWidget):
         def open_device_manager():
             import os
             import platform
-
             if platform.system() == "Windows":
-                os.system("start devmgmt.msc")  # Відкрити "Диспетчер пристроїв" у Windows
+                os.system("start devmgmt.msc")
             else:
-                QMessageBox.information(
-                    self, "Недоступно", "Функція доступна лише на Windows."
-                )
+                QMessageBox.information(self, "Недоступно", "Функція доступна лише на Windows.")
 
         open_settings_button = QPushButton("Подивитися налаштування порту")
         open_settings_button.clicked.connect(open_device_manager)
         layout.addWidget(open_settings_button)
 
-        # Поле для редагування назви
+        # Поля редагування
         name_label = QLabel("Назва проєкту:")
         name_edit = QLineEdit(project.name)
         layout.addWidget(name_label)
         layout.addWidget(name_edit)
 
-        # Поле для опису
         description_label = QLabel("Опис:")
         description_edit = QLineEdit(project.description or "")
         layout.addWidget(description_label)
         layout.addWidget(description_edit)
 
-        # Поле для вибору baudrate
         baudrate_label = QLabel("Baudrate:")
         baudrate_edit = QComboBox()
         baudrate_options = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200]
@@ -200,7 +223,6 @@ class ProjectsWidget(QWidget):
         layout.addWidget(baudrate_label)
         layout.addWidget(baudrate_edit)
 
-        # Поле для вибору bytesize
         bytesize_label = QLabel("Bytesize:")
         bytesize_edit = QSpinBox()
         bytesize_edit.setRange(5, 8)
@@ -208,7 +230,6 @@ class ProjectsWidget(QWidget):
         layout.addWidget(bytesize_label)
         layout.addWidget(bytesize_edit)
 
-        # Поле для вибору stopbits
         stopbits_label = QLabel("Stopbits:")
         stopbits_edit = QComboBox()
         stopbits_edit.addItems(["1", "1.5", "2"])
@@ -216,15 +237,13 @@ class ProjectsWidget(QWidget):
         layout.addWidget(stopbits_label)
         layout.addWidget(stopbits_edit)
 
-        # Поле для вибору parity
         parity_label = QLabel("Parity:")
         parity_edit = QComboBox()
-        parity_edit.addItems(["N", "E", "O"])  # None, Even, Odd
+        parity_edit.addItems(["N", "E", "O"])
         parity_edit.setCurrentText(project.parity)
         layout.addWidget(parity_label)
         layout.addWidget(parity_edit)
 
-        # Кнопки підтвердження та скасування
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         layout.addWidget(button_box)
 
@@ -239,26 +258,35 @@ class ProjectsWidget(QWidget):
             new_stopbits = float(stopbits_edit.currentText())
             new_parity = parity_edit.currentText()
 
-            if new_name != project.name:
-                existing_project = self.db_session.query(Project).filter_by(name=new_name).first()
-                if existing_project:
-                    QMessageBox.warning(self, "Помилка", "Проєкт з такою назвою вже існує.")
-                    return
+            async with self.db_session() as session:
+                async with session.begin():
+                    if new_name != project.name:
+                        existing_project = await session.execute(
+                            select(Project).filter_by(name=new_name)
+                        )
+                        if existing_project.scalar():
+                            QMessageBox.warning(self, "Помилка", "Проєкт з такою назвою вже існує.")
+                            return
 
-            project.name = new_name
-            project.description = new_description
-            project.baudrate = new_baudrate
-            project.bytesize = new_bytesize
-            project.stopbits = new_stopbits
-            project.parity = new_parity
+                    project.name = new_name
+                    project.description = new_description
+                    project.baudrate = new_baudrate
+                    project.bytesize = new_bytesize
+                    project.stopbits = new_stopbits
+                    project.parity = new_parity
 
-            self.db_session.commit()
-            self.load_projects()
+                    session.add(project)
+            await self.load_projects()
 
-    def open_project_details(self, index):
+    async def open_project_details(self, index):
+        """Відкриття деталей проєкту."""
         project_name = self.projects_model.itemFromIndex(index).data(Qt.UserRole)
-        project = self.db_session.query(Project).filter_by(name=project_name).first()
-        if project:
-            self.main_window.open_project_details(project)
-        else:
-            print("Couldn't find project")
+        async with self.db_session() as session:
+            async with session.begin():
+                project = await session.execute(select(Project).filter_by(name=project_name))
+                project = project.scalar()
+                if project:
+                    self.main_window.open_project_details(project)
+                    self.ui_update.stop()
+                else:
+                    print("Couldn't find project")

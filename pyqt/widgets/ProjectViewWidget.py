@@ -2,7 +2,8 @@ from PyQt5.QtGui import QStandardItemModel, QStandardItem, QIcon
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QListView, QPushButton, QMessageBox, \
     QHBoxLayout, QDialog, QFormLayout, QComboBox, QLineEdit, QDialogButtonBox, QSpinBox, QRadioButton, QTimeEdit, \
     QCheckBox
-from PyQt5.QtCore import Qt, QSize, QTime
+from PyQt5.QtCore import Qt, QSize, QTime, QTimer
+from sqlalchemy.exc import SQLAlchemyError
 
 from config import resource_path
 from models.Device import Device
@@ -19,6 +20,7 @@ class ProjectViewWidget(QWidget):
         layout = QVBoxLayout(self)
 
         self.label = QLabel(f"Деталі проєкту: {project.name}")
+        self.label.setStyleSheet("font-size: 18px;")
         layout.addWidget(self.label)
 
         self.devices_list = QListView(self)
@@ -33,63 +35,99 @@ class ProjectViewWidget(QWidget):
         layout.addWidget(self.add_device_button)
         if not self.isAdmin:
             self.add_device_button.setDisabled(True)
+        self.add_device_button.setStyleSheet("font-size: 18px;")
         self.add_device_button.clicked.connect(self.add_new_device)
 
         self.devices_list.doubleClicked.connect(self.open_device_details)
 
+        # Таймер для оновлення статусу
+        self.status_update_timer = QTimer(self)
+        self.status_update_timer.timeout.connect(self.update_device_statuses)
+        self.status_update_timer.setInterval(1000)
+        self.status_update_timer.start(1000)  # Оновлюємо кожну секунду
+
     def load_devices(self):
-        self.devices_model.clear()
-        devices = self.db_session.query(Device).filter_by(project_id=self.project.id).all()
+        try:
+            # Перевіряємо транзакцію
+            if self.db_session.is_active:
+                devices = self.db_session.query(Device).filter_by(project_id=self.project.id).all()
+                for index, device in enumerate(devices, start=1):
+                    item = QStandardItem()
+                    item.setData(device.name, Qt.UserRole)
+                    item.setSizeHint(QSize(0, 60))
+                    self.devices_model.appendRow(item)
 
-        for index, device in enumerate(devices, start=1):
-            item = QStandardItem()
-            item.setData(device.name, Qt.UserRole)
-            item.setSizeHint(QSize(0, 60))
-            self.devices_model.appendRow(item)
+                    item_widget = QWidget()
+                    item_layout = QHBoxLayout(item_widget)
 
-            item_widget = QWidget()
-            item_layout = QHBoxLayout(item_widget)
+                    # Порядковий номер
+                    number_label = QLabel(f"{index}")
+                    number_label.setStyleSheet("font-size: 14px; color: #666666;")
+                    number_label.setFixedWidth(40)
+                    number_label.setAlignment(Qt.AlignCenter)
+                    item_layout.addWidget(number_label)
 
-            # Порядковий номер
-            number_label = QLabel(f"{index}")  # Номер по порядку
-            number_label.setStyleSheet("font-size: 14px; color: #666666;")
-            number_label.setFixedWidth(40)  # Ширина для номера
-            number_label.setAlignment(Qt.AlignCenter)
-            item_layout.addWidget(number_label)
+                    name_label = QLabel(device.name)
+                    name_label.setStyleSheet("font-size: 18px;")
+                    item_layout.addWidget(name_label)
 
-            name_label = QLabel(device.name)
-            name_label.setStyleSheet("font-size: 18px;")
-            item_layout.addWidget(name_label)
+                    toggle_status_button = QPushButton("Увімкнути" if not device.get_reading_status() else "Вимкнути")
+                    toggle_status_button.setFixedSize(100, 36)
+                    toggle_status_button.clicked.connect(
+                        lambda _, d=device, btn=toggle_status_button: self.toggle_device_status(d, btn))
+                    item_layout.addWidget(toggle_status_button)
 
-            toggle_status_button = QPushButton("Ввімкнути" if not device.get_reading_status() else "Вимкнути")
-            toggle_status_button.setFixedSize(100, 36)
-            toggle_status_button.clicked.connect(
-                lambda _, d=device, btn=toggle_status_button: self.toggle_device_status(d, btn))
-            item_layout.addWidget(toggle_status_button)
+                    edit_button = QPushButton()
+                    edit_button.setIcon(QIcon(resource_path("pyqt/icons/edit.png")))
+                    edit_button.setFixedSize(36, 36)
+                    edit_button.clicked.connect(lambda _, d=device: self.edit_device(d))
+                    item_layout.addWidget(edit_button)
 
-            edit_button = QPushButton()
-            edit_button.setIcon(QIcon(resource_path("pyqt/icons/edit.png")))
-            edit_button.setFixedSize(36, 36)
-            edit_button.clicked.connect(lambda _, d=device: self.edit_device(d))
-            item_layout.addWidget(edit_button)
+                    delete_button = QPushButton()
+                    delete_button.setIcon(QIcon(resource_path("pyqt/icons/delete.png")))
+                    delete_button.setFixedSize(36, 36)
+                    delete_button.clicked.connect(lambda _, d=device: self.delete_device(d))
+                    item_layout.addWidget(delete_button)
 
-            delete_button = QPushButton()
-            delete_button.setIcon(QIcon(resource_path("pyqt/icons/delete.png")))
-            delete_button.setFixedSize(36, 36)
-            delete_button.clicked.connect(lambda _, d=device: self.delete_device(d))
-            item_layout.addWidget(delete_button)
+                    item_layout.setContentsMargins(0, 0, 0, 0)
 
-            item_layout.setContentsMargins(0, 0, 0, 0)
+                    self.devices_list.setIndexWidget(item.index(), item_widget)
 
-            self.devices_list.setIndexWidget(item.index(), item_widget)
+                    # Зберігаємо кнопку для подальшого доступу
+                    item.setData(toggle_status_button, Qt.UserRole + 1)
+        except SQLAlchemyError as e:
+            QMessageBox.critical(self, "Помилка", f"Не вдалося завантажити пристрої: {e}")
+            self.db_session.rollback()  # Якщо сталася помилка, відкатуємо зміни
+
+    def update_device_statuses(self):
+        """Оновлює статуси всіх пристроїв кожну секунду, якщо екран активний."""
+        try:
+            if self.db_session.is_active:
+                devices = self.db_session.query(Device).filter_by(project_id=self.project.id).all()
+
+                for row in range(self.devices_model.rowCount()):
+                    item = self.devices_model.item(row)
+                    device_name = item.data(Qt.UserRole)
+                    device = next((d for d in devices if d.name == device_name), None)
+
+                    if device:
+                        # Отримуємо кнопку статусу для цього пристрою
+                        toggle_button = item.data(Qt.UserRole + 1)
+                        if toggle_button:
+                            new_status = "Увімкнути" if not device.get_reading_status() else "Вимкнути"
+                            toggle_button.setText(new_status)
+        except SQLAlchemyError as e:
+            QMessageBox.critical(self, "Помилка", f"Не вдалося оновити статуси: {e}")
+            self.db_session.rollback()
 
     def toggle_device_status(self, device, button):
         try:
             device.toggle_reading_status()
             self.db_session.commit()
-            button.setText("Ввімкнути" if not device.get_reading_status() else "Вимкнути")
+            button.setText("Увімкнути" if not device.get_reading_status() else "Вимкнути")
         except Exception as e:
             QMessageBox.critical(self, "Помилка", f"Не вдалося змінити статус пристрою: {e}")
+            self.db_session.rollback()
 
     def add_new_device(self):
         try:
@@ -142,6 +180,8 @@ class ProjectViewWidget(QWidget):
                 self.db_session.commit()
 
                 self.load_devices()
+
+                self.edit_device(new_device)
         except Exception as e:
             print(f"Помилка при додаванні пристрою: {e}")
             QMessageBox.critical(self, "Помилка", "Не вдалося додати пристрій.")

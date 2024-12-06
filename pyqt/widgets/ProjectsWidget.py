@@ -5,6 +5,8 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtGui import QStandardItemModel, QStandardItem, QIcon
 from PyQt5.QtCore import Qt, QSize
+from pymodbus.client import ModbusSerialClient
+from qasync import asyncSlot
 from sqlalchemy import select
 
 from config import resource_path
@@ -12,10 +14,11 @@ from models.Project import Project
 
 
 class ProjectsWidget(QWidget):
-    def __init__(self, main_window, status_update_signal):
+    def __init__(self, main_window):
         super().__init__(main_window)
+
         self.main_window = main_window
-        self.db_session = main_window.db_session  # Це має бути асинхронна сесія
+        self.db_session = main_window.db_session
         self.isAdmin = main_window.isAdmin
 
         self.layout = QVBoxLayout(self)
@@ -30,7 +33,7 @@ class ProjectsWidget(QWidget):
         self.projects_model = QStandardItemModel()
         self.projects_list.setModel(self.projects_model)
 
-        self.projects_list.doubleClicked.connect(self.open_project_details)
+        self.projects_list.doubleClicked.connect(self.on_project_double_click)
 
         self.add_project_button = QPushButton("Додати новий проєкт", self)
         self.add_project_button.setStyleSheet("font-size: 18px;")
@@ -41,28 +44,29 @@ class ProjectsWidget(QWidget):
 
         self.add_project_button.clicked.connect(self.add_new_project)
 
-        # Підключення сигналу до методів, які оновлюють UI
-        self.status_update_signal = status_update_signal
-        status_update_signal.connect(self.update_project_connection_status)
+        asyncio.create_task(self.load_projects())
 
-        # Запуск асинхронного оновлення
-        asyncio.create_task(self.update_ui_loop())
+    def on_project_double_click(self, index):
+        """Синхронна функція для обробки подвійного кліку на проекті."""
+        asyncio.create_task(self.open_project_details(index))
 
-    async def update_ui_loop(self):
-        """Асинхронне оновлення UI"""
-        while True:
-            await self.load_projects()
-            await asyncio.sleep(5)  # Інтервал оновлення у секундах
+    async def update_connection_status(self, project, label):
+        if await self.check_project_connection(project):
+            label.setText("✅ З'єднання успішне | Порт:")
+            label.setStyleSheet("color: green; font-size: 14px; alignment: right; margin: 0px; padding: 0px; border: 0px solid #cccccc;")
+        else:
+            label.setText("❌ Немає з'єднання | Порт:")
+            label.setStyleSheet("color: red; font-size: 14px; alignment: right; margin: 0px; padding: 0px; border: 0px solid #cccccc;")
 
     async def load_projects(self):
-        """Асинхронне завантаження проєктів з бази даних"""
+        """Асинхронне завантаження проєктів з бази даних та оновлення таблиці"""
         self.projects_model.clear()
 
         available_ports = [f"COM{i}" for i in range(1, 256)]
 
         async with self.db_session() as session:
             async with session.begin():
-                projects = await session.execute(Project.select())
+                projects = await session.execute(select(Project))
                 projects = projects.scalars().all()
 
         for index, project in enumerate(projects, start=1):
@@ -105,7 +109,7 @@ class ProjectsWidget(QWidget):
             )
 
             connection_label = QLabel()
-            self.update_connection_status(project, connection_label)
+            await self.update_connection_status(project, connection_label)
             connection_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             connection_label.setFixedWidth(200)
             item_layout.addWidget(connection_label)
@@ -143,27 +147,59 @@ class ProjectsWidget(QWidget):
                         session.add(project)
                     await session.commit()
                 print(f"Project {project.name} port updated to COM{port_number}")
+
+                await self.update_table()
+
             except ValueError:
                 print(f"Invalid port value: {new_port}")
 
+    async def update_table(self):
+        """Метод для оновлення таблиці проєктів"""
+        await self.load_projects()
+
+    async def check_project_connection(self, project):
+        """Перевірка з'єднання проєкту"""
+        client = ModbusSerialClient(
+            port=f"COM{project.port}",
+            baudrate=project.baudrate,
+            parity=project.parity,
+            stopbits=project.stopbits,
+            bytesize=project.bytesize,
+            timeout=0.1
+        )
+        try:
+            if client.connect():
+                return True
+            else:
+                return False
+        except Exception as e:
+            print(e)
+            return False
+
+    @asyncSlot()
     async def add_new_project(self):
-        """Асинхронне додавання нового проєкту"""
-        project_name, ok = QInputDialog.getText(self, "Додати новий проєкт", "Введіть назву проєкту:")
+        """Асинхронне додавання нового проекту"""
+        project_name, ok = QInputDialog.getText(self, "Додати новий проект", "Введіть назву проекту:")
 
         if ok and project_name:
             async with self.db_session() as session:
                 async with session.begin():
-                    existing_project = await session.execute(Project.select().where(Project.name == project_name))
-                    if existing_project.scalar():
-                        QMessageBox.warning(self, "Помилка", "Проєкт з такою назвою вже існує.")
+                    # Перевіряємо, чи існує проект із такою назвою
+                    result = await session.execute(select(Project).where(Project.name == project_name))
+                    existing_project = result.scalar_one_or_none()
+
+                    if existing_project:  # Якщо проект вже існує
+                        QMessageBox.warning(self, "Помилка", "Проект з такою назвою вже існує")
                         return
 
+                    # Якщо проект не знайдений, створюємо новий
                     new_project = Project(name=project_name, port=1)
                     session.add(new_project)
                     await session.commit()
 
             await self.load_projects()
 
+    @asyncSlot()
     async def delete_project(self, project):
         """Видалення проєкту."""
         reply = QMessageBox.question(
@@ -179,6 +215,7 @@ class ProjectsWidget(QWidget):
                     await session.delete(project)
             await self.load_projects()
 
+    @asyncSlot()
     async def edit_project(self, project):
         """Редагування проєкту."""
         dialog = QDialog(self)
@@ -287,6 +324,5 @@ class ProjectsWidget(QWidget):
                 project = project.scalar()
                 if project:
                     self.main_window.open_project_details(project)
-                    self.ui_update.stop()
                 else:
                     print("Couldn't find project")

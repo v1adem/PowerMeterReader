@@ -582,7 +582,7 @@ class DeviceDetailsSDM120Widget(QWidget):
                 worksheet.write(row, 0, timestamp_str)  # Дата/Час
                 worksheet.write(row, 1, entry.voltage)  # Напруга
                 worksheet.write(row, 2, entry.current)  # Струм
-                worksheet.write(row, 3, entry.active_power)    # Потужність
+                worksheet.write(row, 3, entry.active_power)  # Потужність
 
                 row += 1
 
@@ -591,7 +591,7 @@ class DeviceDetailsSDM120Widget(QWidget):
 
             # Якщо користувач вибрав додавання графіків
             if self.include_charts:
-                parameters = {'voltage':'Напруга', 'current':'Струм', 'active_power':'Потужність'}
+                parameters = {'voltage': 'Напруга', 'current': 'Струм', 'active_power': 'Потужність'}
                 for param in parameters.keys():
                     worksheet_param = workbook.add_worksheet(param)
 
@@ -604,10 +604,13 @@ class DeviceDetailsSDM120Widget(QWidget):
                         worksheet_param.write(row, 1, getattr(entry, param.lower()))
                         row += 1
 
-                    worksheet_param.add_table(f'A1:B{row}', {'name': f'{param}_data', 'columns': [{'header': 'Дата/Час'}, {'header': parameters[param]}],})
+                    worksheet_param.add_table(f'A1:B{row}', {'name': f'{param}_data',
+                                                             'columns': [{'header': 'Дата/Час'},
+                                                                         {'header': parameters[param]}], })
 
                     chart = workbook.add_chart({'type': 'line'})
-                    chart.add_series({'values': f'={param}!$B$2:$B${row}', 'name': parameters[param], 'categories': f'={param}!$A$2:$A${row-1}'})
+                    chart.add_series({'values': f'={param}!$B$2:$B${row}', 'name': parameters[param],
+                                      'categories': f'={param}!$A$2:$A${row - 1}'})
                     chart.set_title({'name': parameters[param]})
 
                     chart.set_x_axis({'date_axis': True, 'num_format': 'yyyy-mm-dd hh:mm:ss'})

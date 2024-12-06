@@ -1,3 +1,15 @@
+import asyncio
+from datetime import datetime
+
+from PyQt5.QtCore import QObject
+from sqlalchemy import select
+
+from models.Device import Device
+from models.Report import SDM120Report, SDM630Report, SDM120ReportTmp
+from rtu.SerialReaderRS485 import SerialReaderRS485
+
+
+import asyncio
 from datetime import datetime
 
 from PyQt5.QtCore import QObject
@@ -16,12 +28,12 @@ async def get_data_from_device(device, project, properties_list, db_session):
 
 
 class DataCollector(QObject):
-    def __init__(self, db_session, project, port_queue, status_update_signal):
+    def __init__(self, db_session, project, port_queue):
         super().__init__()
         self.db_session = db_session
         self.project = project
         self.port_queue = port_queue
-        self.status_update_signal = status_update_signal  # Сигнал для оновлення статусу порту
+        self.lock = asyncio.Lock()  # Створення асинхронного лок
 
     async def collect_data(self):
         async with self.db_session() as session:
@@ -37,21 +49,22 @@ class DataCollector(QObject):
                         'properties_list': device.get_parameter_names(),
                         'callback': self.process_device
                     })
+                    await asyncio.sleep(0.1)
 
     async def process_device(self, device, properties_list):
         try:
-            print(f"{datetime.now().strftime('%d/%m/%Y, %H:%M:%S')} - {device.name} is reading")
-            new_data = await get_data_from_device(db_session=self.db_session, project=self.project,
-                                                  properties_list=properties_list, device=device)
+            # Отримуємо доступ до бази даних через блокування
+            async with self.lock:
+                print(f"{datetime.now().strftime('%d/%m/%Y, %H:%M:%S')} - {device.name} is reading")
+                new_data = await get_data_from_device(db_session=self.db_session, project=self.project,
+                                                      properties_list=properties_list, device=device)
 
-            if new_data:
-                await self.create_tmp_report(device, new_data)
-                await self.create_full_report(device, new_data)
-                await self.update_project_connection_status(device.project, True)
+                if new_data:
+                    await self.create_tmp_report(device, new_data)
+                    await self.create_full_report(device, new_data)
 
         except Exception as e:
             print(f"Error processing device {device.name}: {e}")
-            await self.update_project_connection_status(device.project, False)
 
     async def create_tmp_report(self, device, new_data):
         tmp_report_data = {
@@ -65,8 +78,9 @@ class DataCollector(QObject):
         tmp_report = SDM120ReportTmp(**tmp_report_data)
 
         async with self.db_session() as session:
-            session.add(tmp_report)
-            await session.commit()
+            async with self.lock:  # Блокуємо доступ до БД під час запису
+                session.add(tmp_report)
+                await session.commit()
 
     async def create_full_report(self, device, new_data):
         report_data = {
@@ -82,18 +96,6 @@ class DataCollector(QObject):
             return
 
         async with self.db_session() as session:
-            session.add(new_report)
-            await session.commit()
-
-    async def update_project_connection_status(self, project, is_connected):
-        """Оновлюємо статус порту проєкту лише якщо він змінився"""
-        async with self.db_session() as session:
-            db_project = await session.get(type(project), project.id)
-            if db_project.is_connected != is_connected:
-                db_project.is_connected = is_connected
+            async with self.lock:  # Блокуємо доступ до БД під час запису
+                session.add(new_report)
                 await session.commit()
-                # Викликаємо сигнал для оновлення UI, передаючи проект
-                print(f"Статус порту для проєкту {project.name} змінився!!!")
-                self.status_update_signal.emit(db_project)
-            else:
-                print(f"Статус порту для проєкту {project.name} не змінився.")

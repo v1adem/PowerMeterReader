@@ -20,16 +20,13 @@ from pyqt.widgets.ProjectsWidget import ProjectsWidget
 from pyqt.widgets.RegistrationLoginForm import RegistrationLoginForm
 from rtu.DataCollector import DataCollector
 
-
 from sqlalchemy.future import select
 
 
 class MainWindow(QMainWindow):
-    status_update_signal = pyqtSignal(Project)
-
     def __init__(self, engine):
         super().__init__()
-
+        self.engine = engine
         self.db_session = async_sessionmaker(bind=engine, expire_on_commit=False)
         self.port_queues = {}  # Черги для портів
         self.port_locks = {}  # Блокування для портів
@@ -68,16 +65,15 @@ class MainWindow(QMainWindow):
         self.stacked_widget.setCurrentIndex(0)
 
         # Ініціалізація черг портів
-        asyncio.ensure_future(self.initialize_port_queues())
+        # asyncio.ensure_future(self.initialize_port_queues())
 
         # Ініціалізація адміністратора
-        asyncio.ensure_future(self.initialize_admin())
+        asyncio.create_task(self.initialize_admin())
 
         # Викликаємо метод асинхронно
-        QTimer.singleShot(0, self.start_data_collectors)
+        # QTimer.singleShot(0, self.start_data_collectors)
 
     async def initialize_admin(self):
-        # асинхронний запит до БД для отримання адміністратора
         async with self.db_session() as session:
             result = await session.execute(select(Admin))
             admin = result.scalars().first()
@@ -87,13 +83,7 @@ class MainWindow(QMainWindow):
             await self.open_projects_list()
 
     async def open_projects_list(self):
-        # асинхронний запит для отримання проектів
-        async with self.db_session() as session:
-            result = await session.execute(select(Project))
-            projects = result.scalars().all()
-
-        # подальше використання отриманих проектів
-        projects_widget = ProjectsWidget(self, self.status_update_signal)
+        projects_widget = ProjectsWidget(self)
         self.stacked_widget.addWidget(projects_widget)
         self.stacked_widget.setCurrentIndex(1)
 
@@ -171,8 +161,8 @@ class MainWindow(QMainWindow):
         dialog.exec_()
 
     def open_projects_list(self):
-        projects_widget = ProjectsWidget(self, self.status_update_signal)
-        self.stacked_widget.addWidget(projects_widget)
+        self.projects_widget = ProjectsWidget(self)
+        self.stacked_widget.addWidget(self.projects_widget)
         self.stacked_widget.setCurrentIndex(1)
 
     def open_project_details(self, project):
@@ -188,9 +178,10 @@ class MainWindow(QMainWindow):
         elif device.model == "SDM630":
             pass
 
-
-    def go_back(self):
+    @asyncSlot()
+    async def go_back(self):
         current_index = self.stacked_widget.currentIndex()
+        await self.projects_widget.update_table()
 
         if current_index > 0:
             current_widget = self.stacked_widget.currentWidget()

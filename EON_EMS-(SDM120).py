@@ -13,14 +13,11 @@ def get_database_path():
     Визначає шлях до бази даних у каталозі APPDATA (Windows)
     або відповідному каталозі для Linux/MacOS.
     """
-    # Отримуємо каталог APPDATA (Windows) або аналог на інших ОС
     appdata_dir = os.getenv('APPDATA') if sys.platform == 'win32' else os.path.expanduser('~/.config')
-    app_dir = os.path.join(appdata_dir, 'PowerMeterReader')
+    app_dir = os.path.join(appdata_dir, 'EON')
 
-    # Створюємо каталог, якщо він не існує
     os.makedirs(app_dir, exist_ok=True)
 
-    # Повертаємо шлях до файлу бази даних
     return os.path.join(app_dir, 'app.db')
 
 
@@ -34,15 +31,12 @@ def create_database_and_tables(db_path):
 
 
 if __name__ == "__main__":
-    # Отримуємо шлях до бази даних
     db_path = get_database_path()
 
-    # Створюємо базу даних і таблиці
     engine = create_database_and_tables(db_path)
     Session = sessionmaker(bind=engine)
     session = Session()
 
-    # Запускаємо PyQt-додаток
     app = QApplication(sys.argv)
     window = MainWindow(session)
     window.show()

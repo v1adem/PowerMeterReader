@@ -4,6 +4,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtGui import QStandardItemModel, QStandardItem, QIcon
 from PyQt5.QtCore import Qt, QSize
+from pymodbus.client import ModbusSerialClient
 
 from config import resource_path
 from models.Project import Project
@@ -34,6 +35,7 @@ class ProjectsWidget(QWidget):
         self.load_projects()
 
         self.add_project_button = QPushButton("Додати новий проєкт", self)
+        self.add_project_button.setStyleSheet("font-size: 18px;")
         self.layout.addWidget(self.add_project_button)
 
         if not self.isAdmin:
@@ -59,20 +61,20 @@ class ProjectsWidget(QWidget):
 
             # Порядковий номер
             number_label = QLabel(f"{index}")  # Номер по порядку
-            number_label.setStyleSheet("font-size: 14px; color: #666666; border: 0px solid #cccccc;")
+            number_label.setStyleSheet("font-size: 18px; color: #666666; border: 0px solid #cccccc;")
             number_label.setFixedWidth(40)  # Ширина для номера
             number_label.setAlignment(Qt.AlignCenter)
             item_layout.addWidget(number_label)
 
             name_label = QLabel(project.name)
-            name_label.setStyleSheet("font-size: 14px; border: 0px solid #cccccc;")
+            name_label.setStyleSheet("font-size: 18px; border: 0px solid #cccccc;")
             item_layout.addWidget(name_label)
 
             port_combo = QComboBox()
             port_combo.addItems([str(i) for i in range(1, 256)])
             port_combo.setCurrentText(str(project.port))
             port_combo.setFixedWidth(48)
-            port_combo.setStyleSheet("font-size: 14px; border: 0px solid #cccccc;")
+            port_combo.setStyleSheet("font-size: 18px; border: 0px solid #cccccc;")
             port_combo.currentIndexChanged.connect(
                 lambda _, p=project, combo=port_combo: self.change_project_port(p, combo.currentText())
             )
@@ -103,7 +105,7 @@ class ProjectsWidget(QWidget):
                 item_layout.addWidget(delete_button)
             else:
                 port_label = QLabel(f"{project.port}")
-                port_label.setStyleSheet("font-size: 14px; border: 0px solid #cccccc; margin: 0px;")
+                port_label.setStyleSheet("font-size: 18px; border: 0px solid #cccccc; margin: 0px;")
                 item_layout.addWidget(port_label)
 
             item_layout.setContentsMargins(10, 5, 10, 5)
@@ -111,12 +113,12 @@ class ProjectsWidget(QWidget):
             self.projects_list.setIndexWidget(item.index(), item_widget)
 
     def update_connection_status(self, project, label):
-        if self.is_connected(project.port):
+        if self.is_connected(project):
             label.setText("✅ З'єднання успішне | Порт:")
-            label.setStyleSheet("color: green; font-size: 14px; alignment: right; margin: 0px; padding: 0px; border: 0px solid #cccccc;")
+            label.setStyleSheet("color: green; font-size: 18px; alignment: right; margin: 0px; padding: 0px; border: 0px solid #cccccc;")
         else:
             label.setText("❌ Немає з'єднання | Порт:")
-            label.setStyleSheet("color: red; font-size: 14px; alignment: right; margin: 0px; padding: 0px; border: 0px solid #cccccc;")
+            label.setStyleSheet("color: red; font-size: 18px; alignment: right; margin: 0px; padding: 0px; border: 0px solid #cccccc;")
 
     def change_project_port(self, project, new_port):
         project.port = int(new_port)
@@ -124,8 +126,17 @@ class ProjectsWidget(QWidget):
 
         self.load_projects()
 
-    def is_connected(self, port):
-        return False  # TODO
+    def is_connected(self, project):
+        client = ModbusSerialClient(
+            port=f"COM{project.port}",
+            baudrate=project.baudrate,
+            parity=project.parity,
+            stopbits=project.stopbits,
+            bytesize=project.bytesize,
+        )
+        if client.connect():
+            return True
+        return False
 
     def add_new_project(self):
         project_name, ok = QInputDialog.getText(self, "Додати новий проєкт", "Введіть назву проєкту:")
@@ -160,6 +171,7 @@ class ProjectsWidget(QWidget):
         info_label = QLabel(
             "Усі параметри проєкту мають збігатися з налаштуваннями на пристроях і з налаштуваннями "
             "серійного порту Вашого ПК до якого підключений перетворювач."
+            "\nНЕ ВИКОРИСТОВУЙТЕ СИСТЕМНІ ПОРТИ (Зазвичай COM3 та COM4), це може призвести до помилок"
         )
         info_label.setWordWrap(True)
         layout.addWidget(info_label)

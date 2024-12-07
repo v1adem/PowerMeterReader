@@ -30,6 +30,7 @@ class ProjectViewWidget(QWidget):
         self.load_devices()
 
         self.add_device_button = QPushButton("Додати новий пристрій", self)
+        self.add_device_button.setStyleSheet("font-size: 18px;")
         layout.addWidget(self.add_device_button)
         if not self.isAdmin:
             self.add_device_button.setDisabled(True)
@@ -65,19 +66,21 @@ class ProjectViewWidget(QWidget):
             toggle_status_button.setFixedSize(100, 36)
             toggle_status_button.clicked.connect(
                 lambda _, d=device, btn=toggle_status_button: self.toggle_device_status(d, btn))
-            item_layout.addWidget(toggle_status_button)
 
             edit_button = QPushButton()
             edit_button.setIcon(QIcon(resource_path("pyqt/icons/edit.png")))
             edit_button.setFixedSize(36, 36)
             edit_button.clicked.connect(lambda _, d=device: self.edit_device(d))
-            item_layout.addWidget(edit_button)
+
 
             delete_button = QPushButton()
             delete_button.setIcon(QIcon(resource_path("pyqt/icons/delete.png")))
             delete_button.setFixedSize(36, 36)
             delete_button.clicked.connect(lambda _, d=device: self.delete_device(d))
-            item_layout.addWidget(delete_button)
+            if self.isAdmin:
+                item_layout.addWidget(toggle_status_button)
+                item_layout.addWidget(edit_button)
+                item_layout.addWidget(delete_button)
 
             item_layout.setContentsMargins(0, 0, 0, 0)
 

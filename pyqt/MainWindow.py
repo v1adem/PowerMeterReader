@@ -25,7 +25,7 @@ class MainWindow(QMainWindow):
         projects = self.db_session.query(Project).all()
 
         for project in projects:
-            data_collector = DataCollector(db_session, project)
+            data_collector = DataCollector(db_session, project, self)
             self.data_collectors.append(data_collector)
 
             timer = QTimer(self)
@@ -44,6 +44,7 @@ class MainWindow(QMainWindow):
         self.setMinimumHeight(600)
 
         self.menu_bar = self.menuBar()
+        self.menu_bar.setStyleSheet("font-size: 16px;")
 
         back_action = QAction("Назад", self)
         self.menu_bar.addAction(back_action)
@@ -82,8 +83,8 @@ class MainWindow(QMainWindow):
         dialog.exec_()
 
     def open_projects_list(self):
-        projects_widget = ProjectsWidget(self)
-        self.stacked_widget.addWidget(projects_widget)
+        self.projects_widget = ProjectsWidget(self)
+        self.stacked_widget.addWidget(self.projects_widget)
         self.stacked_widget.setCurrentIndex(1)
 
     def open_project_details(self, project):
@@ -102,6 +103,7 @@ class MainWindow(QMainWindow):
 
     def go_back(self):
         current_index = self.stacked_widget.currentIndex()
+        self.projects_widget.load_projects()
 
         if current_index > 0:
             current_widget = self.stacked_widget.currentWidget()

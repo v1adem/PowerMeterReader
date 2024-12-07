@@ -3,9 +3,12 @@ import os
 from datetime import datetime
 from logging import error
 
+from PyQt5.QtWidgets import QMessageBox
 from pymodbus.client import ModbusSerialClient
 from pymodbus.constants import Endian
 from pymodbus.payload import BinaryPayloadDecoder
+
+from models.Device import Device
 
 
 def decode_data(data, property_specifications):
@@ -53,7 +56,12 @@ class SerialReaderRS485:
                  baudrate,
                  bytesize,
                  parity,
-                 stopbits):
+                 stopbits,
+                 main_window):
+        self.port = port
+        self.no_response_error_flag = False
+        self.error_flag = False
+        self.main_window = main_window
         self.device_custom_name = device_custom_name
         self.device_address = device_address
 
@@ -69,6 +77,7 @@ class SerialReaderRS485:
             parity=parity,
             stopbits=stopbits,
             bytesize=bytesize,
+            timeout=0.2
         )
 
     def connect(self):
@@ -90,6 +99,7 @@ class SerialReaderRS485:
                 if response.isError():
                     error(
                         f"{datetime.now().strftime('%d/%m/%Y %H:%M:%S')} | No response | {property_specifications}")
+                    self.no_response_error_flag = True
                     return None
 
                 return decode_data(data=response.registers, property_specifications=property_specifications)
@@ -101,7 +111,7 @@ class SerialReaderRS485:
                 self.client.close()
 
         else:
-            error("Device not connected")
+            self.error_flag = True
 
     def read_all_properties(self, properties_list):
         result = {}
@@ -110,5 +120,20 @@ class SerialReaderRS485:
             if value is not None:
                 result[property_name] = value
             else:
-                result[property_name] = 0
+                result[property_name] = None
+
+        if self.error_flag:
+            device = self.main_window.db_session.query(Device).filter(Device.name == self.device_custom_name).first()
+            if device:
+                device.reading_status = False
+                self.main_window.db_session.commit()
+            QMessageBox.warning(self.main_window, f"{datetime.now().strftime('%d/%m/%Y %H:%M:%S')}",
+                                f"{self.device_custom_name} - Пристрій не підключено")
+        if self.no_response_error_flag:
+            device = self.main_window.db_session.query(Device).filter(Device.name == self.device_custom_name).first()
+            if device:
+                device.reading_status = False
+                self.main_window.db_session.commit()
+            QMessageBox.warning(self.main_window, f"{datetime.now().strftime('%d/%m/%Y %H:%M:%S')}",
+                                f"Порт COM{self.port} - Немає відповіді. Пристрій {self.device_custom_name} - зчитування вимкнено")
         return result

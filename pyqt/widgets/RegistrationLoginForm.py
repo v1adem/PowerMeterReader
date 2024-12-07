@@ -50,6 +50,8 @@ class RegistrationLoginForm(QWidget):
         form_widget.setLayout(form_layout)
         form_widget.setFixedWidth(self.main_window.width() // 3)
 
+        form_widget.setStyleSheet("font-size: 18px;")
+
         center_layout.addWidget(form_widget)
 
         main_layout.addLayout(center_layout)

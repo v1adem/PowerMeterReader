@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Boolean
+from pymodbus.client import ModbusSerialClient
+from sqlalchemy import Column, Integer, String
 from config import Base
 
 
@@ -13,6 +14,8 @@ class Project(Base):
     bytesize = Column(Integer, nullable=False, default=8)
     stopbits = Column(Integer, nullable=False, default=1)
     parity = Column(String, nullable=False, default='N')  # 'N', 'E', 'O', etc.
+
+    is_connected = False
 
     def __repr__(self):
         return (f"<Project(id={self.id}, name='{self.name}', description='{self.description}', "

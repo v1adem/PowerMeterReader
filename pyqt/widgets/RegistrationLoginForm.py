@@ -1,8 +1,11 @@
+import asyncio
+
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLineEdit, QPushButton, QLabel, QHBoxLayout
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
+from qasync import asyncSlot
+from sqlalchemy.future import select
 from sqlalchemy.exc import IntegrityError
 from models.Admin import Admin
-import config
 
 
 class RegistrationLoginForm(QWidget):
@@ -12,8 +15,6 @@ class RegistrationLoginForm(QWidget):
         self.main_window = main_window
         self.db_session = main_window.db_session
 
-        self.setWindowTitle("Реєстрація / Логін")
-
         main_layout = QVBoxLayout(self)
         main_layout.setAlignment(Qt.AlignCenter)
 
@@ -22,6 +23,7 @@ class RegistrationLoginForm(QWidget):
         form_layout = QVBoxLayout()
 
         self.status_label = QLabel(self)
+        self.setStyleSheet("font-size: 18px;")
         form_layout.addWidget(self.status_label, alignment=Qt.AlignCenter)
 
         self.username_label = QLabel("Логін:", self)
@@ -36,9 +38,9 @@ class RegistrationLoginForm(QWidget):
         form_layout.addWidget(self.password_input)
 
         self.login_button = QPushButton("Вхід")
-        self.login_button.clicked.connect(self.login)
+        self.login_button.clicked.connect(lambda: asyncio.create_task(self.login()))  # Виклик асинхронного методу
         self.register_button = QPushButton("Реєстрація")
-        self.register_button.clicked.connect(self.register)
+        self.register_button.clicked.connect(lambda: asyncio.create_task(self.register()))  # Виклик асинхронного методу
         self.guest_button = QPushButton("Ввійти як гість")
         self.guest_button.clicked.connect(self.guest_login)
 
@@ -58,10 +60,14 @@ class RegistrationLoginForm(QWidget):
 
         main_layout.setSpacing(10)
 
-        self.check_if_first_run()
+        # Виклик асинхронного методу для перевірки першого запуску
+        QTimer.singleShot(0, lambda: asyncio.create_task(self.check_if_first_run()))
 
-    def check_if_first_run(self):
-        admin = self.db_session.query(Admin).first()
+    @asyncSlot()
+    async def check_if_first_run(self):
+        async with self.db_session() as session:
+            result = await session.execute(select(Admin).limit(1))
+            admin = result.scalars().first()
 
         if admin:
             self.show_login_form()
@@ -80,31 +86,36 @@ class RegistrationLoginForm(QWidget):
         self.login_button.setVisible(True)
         self.guest_button.setVisible(True)
 
-    def register(self):
+    async def register(self):
         username = self.username_input.text()
         password = self.password_input.text()
 
-        admin = Admin(username=username, password=password)
-        self.db_session.add(admin)
-        try:
-            self.db_session.commit()
-            self.status_label.setText("Реєстрація успішна!")
-            self.show_login_form()
-        except IntegrityError:
-            self.db_session.rollback()
-            self.status_label.setText("Цей користувач вже існує!")
+        async with self.db_session() as session:
+            new_admin = Admin(username=username, password=password)
+            session.add(new_admin)
+            try:
+                await session.commit()
+                self.status_label.setText("Реєстрація успішна!")
+                self.show_login_form()
+            except IntegrityError:
+                await session.rollback()
+                self.status_label.setText("Цей користувач вже існує!")
 
-    def login(self):
+    async def login(self):
         username = self.username_input.text()
         password = self.password_input.text()
 
-        admin = self.db_session.query(Admin).filter_by(username=username, password=password).first()
-        if admin:
-            self.main_window.isAdmin = True
-            self.status_label.setText(f"Вітаємо, {username}!")
-            self.main_window.open_projects_list()
-        else:
-            self.status_label.setText("Невірний логін або пароль")
+        async with self.db_session() as session:
+            result = await session.execute(
+                select(Admin).filter_by(username=username, password=password)
+            )
+            admin = result.scalars().first()
+            if admin:
+                self.main_window.isAdmin = True
+                self.status_label.setText(f"Вітаємо, {username}!")
+                self.main_window.open_projects_list()
+            else:
+                self.status_label.setText("Невірний логін або пароль")
 
     def guest_login(self):
         self.main_window.isAdmin = False

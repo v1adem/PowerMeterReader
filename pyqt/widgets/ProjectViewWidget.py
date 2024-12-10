@@ -62,7 +62,7 @@ class ProjectViewWidget(QWidget):
             name_label.setStyleSheet("font-size: 18px;")
             item_layout.addWidget(name_label)
 
-            toggle_status_button = QPushButton("Ввімкнути" if not device.get_reading_status() else "Вимкнути")
+            toggle_status_button = QPushButton("Увімкнути" if not device.get_reading_status() else "Вимкнути")
             toggle_status_button.setFixedSize(100, 36)
             toggle_status_button.clicked.connect(
                 lambda _, d=device, btn=toggle_status_button: self.toggle_device_status(d, btn))
@@ -90,7 +90,7 @@ class ProjectViewWidget(QWidget):
         try:
             device.toggle_reading_status()
             self.db_session.commit()
-            button.setText("Ввімкнути" if not device.get_reading_status() else "Вимкнути")
+            button.setText("Увімкнути" if not device.get_reading_status() else "Вимкнути")
         except Exception as e:
             QMessageBox.critical(self, "Помилка", f"Не вдалося змінити статус пристрою: {e}")
 
@@ -145,6 +145,8 @@ class ProjectViewWidget(QWidget):
                 self.db_session.commit()
 
                 self.load_devices()
+
+                self.edit_device(new_device)
         except Exception as e:
             print(f"Помилка при додаванні пристрою: {e}")
             QMessageBox.critical(self, "Помилка", "Не вдалося додати пристрій.")

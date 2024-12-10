@@ -38,9 +38,9 @@ class RegistrationLoginForm(QWidget):
         form_layout.addWidget(self.password_input)
 
         self.login_button = QPushButton("Вхід")
-        self.login_button.clicked.connect(lambda: asyncio.create_task(self.login()))  # Виклик асинхронного методу
+        self.login_button.clicked.connect(self.login)  # Виклик асинхронного методу
         self.register_button = QPushButton("Реєстрація")
-        self.register_button.clicked.connect(lambda: asyncio.create_task(self.register()))  # Виклик асинхронного методу
+        self.register_button.clicked.connect(self.register)  # Виклик асинхронного методу
         self.guest_button = QPushButton("Ввійти як гість")
         self.guest_button.clicked.connect(self.guest_login)
 
@@ -60,15 +60,10 @@ class RegistrationLoginForm(QWidget):
 
         main_layout.setSpacing(10)
 
-        # Виклик асинхронного методу для перевірки першого запуску
-        QTimer.singleShot(0, lambda: asyncio.create_task(self.check_if_first_run()))
+        self.check_if_first_run()
 
-    @asyncSlot()
-    async def check_if_first_run(self):
-        async with self.db_session() as session:
-            result = await session.execute(select(Admin).limit(1))
-            admin = result.scalars().first()
-
+    def check_if_first_run(self):
+        admin = self.db_session.query(Admin).first()
         if admin:
             self.show_login_form()
         else:
@@ -86,36 +81,29 @@ class RegistrationLoginForm(QWidget):
         self.login_button.setVisible(True)
         self.guest_button.setVisible(True)
 
-    async def register(self):
+    def register(self):
         username = self.username_input.text()
         password = self.password_input.text()
+        admin = Admin(username=username, password=password)
+        self.db_session.add(admin)
+        try:
+            self.db_session.commit()
+            self.status_label.setText("Реєстрація успішна!")
+            self.show_login_form()
+        except IntegrityError:
+            self.db_session.rollback()
+            self.status_label.setText("Цей користувач вже існує!")
 
-        async with self.db_session() as session:
-            new_admin = Admin(username=username, password=password)
-            session.add(new_admin)
-            try:
-                await session.commit()
-                self.status_label.setText("Реєстрація успішна!")
-                self.show_login_form()
-            except IntegrityError:
-                await session.rollback()
-                self.status_label.setText("Цей користувач вже існує!")
-
-    async def login(self):
+    def login(self):
         username = self.username_input.text()
         password = self.password_input.text()
-
-        async with self.db_session() as session:
-            result = await session.execute(
-                select(Admin).filter_by(username=username, password=password)
-            )
-            admin = result.scalars().first()
-            if admin:
-                self.main_window.isAdmin = True
-                self.status_label.setText(f"Вітаємо, {username}!")
-                self.main_window.open_projects_list()
-            else:
-                self.status_label.setText("Невірний логін або пароль")
+        admin = self.db_session.query(Admin).filter_by(username=username, password=password).first()
+        if admin:
+            self.main_window.isAdmin = True
+            self.status_label.setText(f"Вітаємо, {username}!")
+            self.main_window.open_projects_list()
+        else:
+            self.status_label.setText("Невірний логін або пароль")
 
     def guest_login(self):
         self.main_window.isAdmin = False

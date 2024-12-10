@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from time import sleep
 
 from PyQt5.QtCore import QObject
 from PyQt5.QtWidgets import QMessageBox
@@ -36,7 +37,6 @@ class DataCollector(QObject):
             .filter(Device.project_id == self.project.id)
             .all()
         )
-
         for device in devices:
             if device.reading_status is False:
                 continue

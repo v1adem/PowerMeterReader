@@ -11,6 +11,8 @@ from PyQt5.QtWidgets import QMessageBox, QFileDialog
 from pyqtgraph import AxisItem
 
 from sqlalchemy import desc
+
+from config import resource_path
 from models.Report import SDM120Report, SDM120ReportTmp
 
 
@@ -91,7 +93,7 @@ class DeviceDetailsSDM120Widget(QWidget):
         table_layout.addLayout(filter_layout)
 
         refresh_button = QPushButton()
-        refresh_button.setIcon(QIcon("pyqt/icons/refresh.png"))
+        refresh_button.setIcon(QIcon(resource_path("pyqt/icons/refresh.png")))
         refresh_button.setFixedSize(36, 36)
         refresh_button.clicked.connect(self.load_report_data)
         button_layout.addWidget(refresh_button)
@@ -395,12 +397,11 @@ class DeviceDetailsSDM120Widget(QWidget):
 
     def update_graphs(self, start_date, end_date):
         query = self.db_session.query(SDM120Report).filter_by(device_id=self.device.id)
-        if start_date and end_date:
+        if start_date is not None and end_date is not None:
             query = query.filter(SDM120Report.timestamp >= start_date, SDM120Report.timestamp <= end_date)
         report_data = query.order_by(desc(SDM120Report.timestamp)).all()
 
         if not report_data:
-            QMessageBox.warning(self, "Попередження", "Дані відсутні для заданого періоду.")
             self.start_date = None
             self.end_date = None
             return
@@ -525,15 +526,15 @@ class DeviceDetailsSDM120Widget(QWidget):
 
         date_range_layout = QHBoxLayout()
         start_label = QLabel("Початок:")
-        self.start_date = QDateEdit(QDate.currentDate().addYears(-1))
-        self.start_date.setCalendarPopup(True)
+        self.start_export_date = QDateEdit(QDate.currentDate().addYears(-1))
+        self.start_export_date.setCalendarPopup(True)
         end_label = QLabel("Кінець:")
-        self.end_date = QDateEdit(QDate.currentDate())
-        self.end_date.setCalendarPopup(True)
+        self.end_export_date = QDateEdit(QDate.currentDate())
+        self.end_export_date.setCalendarPopup(True)
         date_range_layout.addWidget(start_label)
-        date_range_layout.addWidget(self.start_date)
+        date_range_layout.addWidget(self.start_export_date)
         date_range_layout.addWidget(end_label)
-        date_range_layout.addWidget(self.end_date)
+        date_range_layout.addWidget(self.end_export_date)
 
         layout.addLayout(date_range_layout)
 
@@ -549,8 +550,9 @@ class DeviceDetailsSDM120Widget(QWidget):
         self.dialog.exec()
 
     def export_to_excel(self):
-        start_datetime = self.start_date.dateTime().toPyDateTime()
-        end_datetime = self.end_date.dateTime().toPyDateTime()
+        start_datetime = self.start_export_date.dateTime().toPyDateTime()
+        end_datetime_for_name = self.end_export_date.dateTime().toPyDateTime()
+        end_datetime = self.end_export_date.dateTime().addDays(1).toPyDateTime()
 
         report_data = self.db_session.query(SDM120Report).filter(
             SDM120Report.device_id == self.device.id,
@@ -565,7 +567,7 @@ class DeviceDetailsSDM120Widget(QWidget):
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Зберегти файл",
-            f"{self.device.name}_{start_datetime.date()}_{end_datetime.date()}.xlsx",
+            f"{self.device.name}_{start_datetime.date()}_{end_datetime_for_name.date()}.xlsx",
             "Excel Files (*.xlsx)")
 
         if not file_path:

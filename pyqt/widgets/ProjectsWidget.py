@@ -21,15 +21,27 @@ class ProjectsWidget(QWidget):
 
         self.layout = QVBoxLayout(self)
 
+        self.top_layout = QHBoxLayout(self)
+
+
         self.projects_label = QLabel("Проєкти", self)
-        self.layout.addWidget(self.projects_label)
+        self.projects_label.setStyleSheet("font-size: 18px;")
+        self.top_layout.addWidget(self.projects_label)
 
         self.projects_list = QListView(self)
-        self.layout.addWidget(self.projects_list)
-
         self.projects_model = QStandardItemModel()
-        self.projects_list.setModel(self.projects_model)
 
+        refresh_button = QPushButton()
+        refresh_button.setIcon(QIcon(resource_path("pyqt/icons/refresh.png")))
+        refresh_button.setFixedSize(36, 36)
+        refresh_button.clicked.connect(self.load_projects)
+        self.top_layout.addWidget(refresh_button)
+
+        self.layout.addLayout(self.top_layout)
+
+
+        self.layout.addWidget(self.projects_list)
+        self.projects_list.setModel(self.projects_model)
         self.projects_list.doubleClicked.connect(self.open_project_details)
 
         self.load_projects()
@@ -135,6 +147,7 @@ class ProjectsWidget(QWidget):
             bytesize=project.bytesize,
         )
         if client.connect():
+            client.close()
             return True
         return False
 
